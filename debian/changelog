@@ -1,0 +1,5 @@
+acmebot (2.4.2) unstable; urgency=medium
+
+  * Initial release. (Closes: #930094)
+
+ -- Hinrikus Wolf <mail@hinrikus-wolf.de>  Wed, 03 Jul 2019 23:16:09 +0200
