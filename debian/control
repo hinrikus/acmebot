@@ -5,6 +5,7 @@ Maintainer: Lars Beckers <lars@extmind>
             Hinrikus Wolf <mail@hinrikus-wolf>
 Build-Depends: debhelper (>=12~),
                dh-python,
+               dh-systemd,
                python3,
                python3-appdirs (>=1.4.3),
                python3-pyparsing (>=2.2.0),
@@ -14,7 +15,7 @@ Build-Depends: debhelper (>=12~),
                python3-cryptography (>=2.1.4),
                python3-asn1crypto (>=0.24.0),
                python3-acme (>=0.25.1),
-               python3-yaml
+               python3-yaml (>=3.13)
 Standards-Version: 4.3.0
 Homepage: https://github.com/plinss/acmebot
 Vcs-Git: https://github.com/hinrikus/acmebot.git
@@ -31,7 +32,7 @@ Depends: python3,
          python3-cryptography (>=2.1.4),
          python3-asn1crypto (>=0.24.0),
          python3-acme (>=0.25.1),
-         python3-yaml
+         python3-yaml (>=3.13)
 Description: A configurable python tool for managing certificates using ACME v1/v2 protocol.
  acmebot acquires and maintains certificates from a certificate authority
  using the ACME v1/v2 protocol supporting Let's Encrypt.
