@@ -1,0 +1,15 @@
+acmebot for Debian
+------------------
+
+This package ships systemd service and timer units. There is no need
+for configuring cron jobs to renew certificates.
+
+An example config has been put to
+
+    /etc/acmebot/acmebot.yaml
+
+which only overrides the default directories used by acmebot.
+Append your own configuration as described in the README or suggested
+by the developer in the example config located in
+
+    /usr/share/doc/acmebot/examples/
