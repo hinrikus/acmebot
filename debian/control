@@ -1,12 +1,11 @@
 Source: acmebot
-Section: python
+Section: web
 Priority: optional
-Maintainer: Lars Beckers <lars@extmind>
-            Hinrikus Wolf <mail@hinrikus-wolf>
+Maintainer: Hinrikus Wolf <mail@hinrikus-wolf.de>
+Uploaders: Lars Beckers <lars@extmind.de>
 Build-Depends: debhelper (>=12~),
                dh-python,
-               dh-systemd,
-               python3,
+               python3-all,
                python3-appdirs (>=1.4.3),
                python3-pyparsing (>=2.2.0),
                python3-packaging (>=16.8),
@@ -23,7 +22,8 @@ Vcs-Browser: https://github.com/hinrikus/acmebot
 
 Package: acmebot
 Architecture: all
-Depends: python3,
+Depends: ${python3:Depends},
+	 ${misc:Depends},
          python3-appdirs (>=1.4.3),
          python3-pyparsing (>=2.2.0),
          python3-packaging (>=16.8),
@@ -33,18 +33,12 @@ Depends: python3,
          python3-asn1crypto (>=0.24.0),
          python3-acme (>=0.25.1),
          python3-yaml (>=3.13)
-Description: A configurable python tool for managing certificates using ACME v1/v2 protocol.
+Description: Python tool for managing certificates using ACME v1/v2 protocol
  acmebot acquires and maintains certificates from a certificate authority
  using the ACME v1/v2 protocol supporting Let's Encrypt.
- The tool can be configured extesively in JSON and YAML.
- But it does not modify configuration files of other services by itself,
+ It does not modify configuration files of other services by itself,
  or provide a server to perform stand-alone domain validation.
- . 
+ .
  It supports both RSA and ECDSA certificates in parallel (default).
  acmebot separates the authorization (domain validation) and certificate
- issuance processes allowing one machine to maintain authorizations,
- while another machine issues certificates. This can be useful e.g. for
- situations where an isolated server is providing a service behind a
- firewall.
- The tool can also maintain associated HPKP headers and TLSA (DANE)
- records.
+ issuance processes allowing one machine to maintain authorizations.
