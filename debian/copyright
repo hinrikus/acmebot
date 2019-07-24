@@ -1,7 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: acmebot
 Source: https://github.com/plinss/acmebot
-# Files-Excluded: TODO
 
 Files: *
 Copyright: 2017, Peter Linss <peter@linss.com>
@@ -10,6 +9,7 @@ License: GPL-3
 Files: debian/*
 Copyright: 2019, Lars Beckers <lars@extmind.de> 
 	   2019, Hinrikus Wolf <mail@hinrikus-wolf.de>
+License: GPL-3
 
 License: GPL-3
  On Debian systems, the full text of the GNU General Public
