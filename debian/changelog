@@ -1,3 +1,9 @@
+acmebot (2.6.0-1) unstable; urgency=medium
+
+  * Upstream update.
+
+ -- Lars Beckers <lars@extmind.de>  Sat, 22 Feb 2020 12:20:50 +0100
+
 acmebot (2.4.4-1) unstable; urgency=medium
 
   * Initial release. (Closes: #930094)
