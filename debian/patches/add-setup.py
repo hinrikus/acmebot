@@ -1,7 +1,7 @@
 Description: add setup.py
  Integration of setuptools to allow easier building with dh_python
  .
- acmebot (2.4.4-1) unstable; urgency=medium
+ acmebot (2.6.0-1) unstable; urgency=medium
  .
    * Initial release. (Closes: #930094)
 Author: Hinrikus Wolf <mail@hinrikus-wolf.de>
@@ -21,12 +21,12 @@ Reviewed-By: <name and email of someone who approved the patch>
 Last-Update: 2019-07-24
 
 --- /dev/null
-+++ acmebot-2.4.4/setup.py
++++ acmebot-2.6.0/setup.py
 @@ -0,0 +1,7 @@
 +from setuptools import setup, find_packages
 +setup(
 +    name="acmebot",
-+    version="2.4.2",
++    version="2.6.0",
 +    scripts=['acmebot']
 +    )
 +
