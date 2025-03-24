@@ -4,44 +4,7 @@
 #
 # To install on Debian:
 # apt-get install build-essential libssl-dev libffi-dev python3-dev python3-pip
-# pip3 install -r requirements.txt
-
-
-def verify_requirements():
-    import os
-    import pkg_resources
-    import re
-    requirements_file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'requirements.txt')
-    if (os.path.exists(requirements_file_path)):
-        requirements_met = True
-        with open(requirements_file_path, 'r') as requirements_file:
-            requirements = requirements_file.read()
-            for requirement in requirements.split('\n'):
-                if (requirement):
-                    package, comparison, version = (re.split('\s?(<?>?==?)\s?', requirement) + ['', ''])[:3]
-                    try:
-                        installed_version = pkg_resources.get_distribution(package).version
-                        if ('<=' == comparison):
-                            if (installed_version > version):
-                                print('Package', package, 'is more recent than', version)
-                                requirements_met = False
-                        elif ('==' == comparison):
-                            if (installed_version != version):
-                                print('Package', package, 'is not version', version)
-                                requirements_met = False
-                        elif ('>=' == comparison):
-                            if (installed_version < version):
-                                print('Package', package, 'is older than', version)
-                                requirements_met = False
-                    except Exception:
-                        print('Package', package, 'is not installed')
-                        requirements_met = False
-        if (not requirements_met):
-            print('Run "pip3 install -r {path}" to complete installation'.format(path=requirements_file_path))
-            exit()
-
-
-verify_requirements()
+# pip3 install acmebot
 
 
 import argparse
@@ -49,6 +12,7 @@ import base64
 import binascii
 import collections
 import datetime
+import enum
 import getpass
 import glob
 import grp
@@ -103,6 +67,33 @@ CertificateData = collections.namedtuple('CertificateData', ['certificate_name',
 TLSAData = collections.namedtuple('TLSAData', ['host', 'port', 'usage', 'selector', 'protocol', 'ttl',
                                                'certificates', 'chain', 'private_keys'])
 
+class ErrorCode(enum.IntEnum):
+    NONE = 0
+    GENERAL = 1
+    FATAL = 2
+    EXCEPTION = 3
+    CONFIG = 4
+    PERMISSION = 5
+    DNS = 6
+    HOOK = 7
+    ACME = 8
+    AUTH = 9
+    KEY = 10
+    PARAM = 11
+    VERIFY = 12
+
+
+class WarningCode(enum.IntEnum):
+    NONE = 0
+    GENERAL = 100
+    CONFIG = 101
+    KEY = 102
+    DNS = 103
+    AUTH = 104
+    SERVICE = 105
+    SCT = 106
+    OCSP = 107
+
 
 class AcmeError(Exception):
     pass
@@ -140,29 +131,15 @@ class FileTransaction(object):
         self.file.write(data)
 
 
-class AcmeManager(object):
-    @classmethod
-    def Run(cls):
-        exit_code = 3
-        manager = None
-        try:
-            manager = cls()
-            manager.run()
-        except AcmeError:
-            pass
-        if (manager):
-            exit_code = manager.exit_code
-            try:
-                del manager
-            except Exception:
-                pass
-        return exit_code
+class AcmeManager:
 
     def __init__(self):
-        self.script_dir = os.path.dirname(os.path.realpath(__file__))
-        self.script_name = os.path.basename(__file__)
-        self.script_version = '2.6.0'
-        self.exit_code = 0
+        script_entry = sys.argv[0]
+        self.script_dir = os.path.dirname(os.path.realpath(script_entry))
+        self.script_name = os.path.basename(script_entry)
+        self.script_version = pkg_resources.get_distribution('acmebot').version
+        self.error_code = ErrorCode.NONE
+        self.warning_code = WarningCode.NONE
 
         self._color_codes = {
             'black': 30,
@@ -180,7 +157,7 @@ class AcmeManager(object):
             'light blue': 94,
             'light magenta': 95,
             'light cyan': 96,
-            'white': 97
+            'white': 97,
         }
         self._style_codes = {
             'normal': 0,
@@ -192,7 +169,7 @@ class AcmeManager(object):
             'blink': 5,
             'reverse': 7,
             'invert': 7,
-            'hidden': 8
+            'hidden': 8,
         }
 
         argparser = argparse.ArgumentParser(description='ACME Certificate Manager')
@@ -264,6 +241,12 @@ class AcmeManager(object):
         argparser.add_argument('--quick',
                                action='store_true', dest='quick', default=False,
                                help='Avoid long running operations')
+        argparser.add_argument('--warning-exit-code',
+                               action='store_true', dest='warning_exit_code', default=False,
+                               help='Use non-zero exit codes for warnings')
+        argparser.add_argument('--no-warning-exit-code',
+                               action='store_true', dest='no_warning_exit_code', default=False,
+                               help='Do not use non-zero exit codes for warnings')
         argparser.add_argument('-A', '--accept',
                                action='store_true', dest='accept', default=False,
                                help='Automatically accept registration terms of service')
@@ -282,6 +265,7 @@ class AcmeManager(object):
 
         self.config = {'settings': {'color_output': True}}
         self.config, self.config_file_path = self._load_config(self.args.config_path, ('.', os.path.join('/etc', self.script_name), self.script_dir))
+        self._failed_auth = set()
         self._key_types = ('rsa', 'ecdsa')
         self._config_defaults = {
             'settings': {
@@ -298,12 +282,15 @@ class AcmeManager(object):
                 'ecparam_curve': ['secp521r1', 'secp384r1', 'secp256k1'],
                 'file_user': 'root',
                 'file_group': 'ssl-cert',
+                'log_user': 'root',
+                'log_group': 'adm',
+                'warning_exit_code': False,
                 'hpkp_days': 60,
                 'pin_subdomains': True,
                 'hpkp_report_uri': None,
                 'ocsp_must_staple': False,
                 'ocsp_responder_urls': ['http://ocsp.int-x3.letsencrypt.org'],
-                'ct_submit_logs': ['google_icarus', 'google_pilot'],
+                'ct_submit_logs': ['google_argon', 'google_xenon'],
                 'renewal_days': 30,
                 'expiration_days': 730,
                 'auto_rollover': False,
@@ -323,7 +310,7 @@ class AcmeManager(object):
                 'nsupdate_command': '/usr/bin/nsupdate',
                 'public_suffix_list_url': 'https://publicsuffix.org/list/public_suffix_list.dat',
                 'verify': None,
-                'services': None
+                'services': None,
             },
             'directories': {
                 'pid': '/var/run',
@@ -344,11 +331,11 @@ class AcmeManager(object):
                 'sct': '/etc/ssl/scts/{name}/{key_type}',
                 'update_key': '/etc/ssl/update_keys',
                 'archive': '/etc/ssl/archive',
-                'temp': None
+                'temp': None,
             },
             'key_type_suffixes': {
                 'rsa': '.rsa',
-                'ecdsa': '.ecdsa'
+                'ecdsa': '.ecdsa',
             },
             'file_names': {
                 'log': self.script_name + '.log',
@@ -363,73 +350,297 @@ class AcmeManager(object):
                 'challenge': '{name}',
                 'hpkp': '{name}.{server}',
                 'ocsp': '{name}{suffix}.ocsp',
-                'sct': '{ct_log_name}.sct'
+                'sct': '{ct_log_name}.sct',
             },
             'hpkp_headers': {
                 'apache': 'Header always set Public-Key-Pins "{header}"\n',
-                'nginx': 'add_header Public-Key-Pins "{header}" always;\n'
+                'nginx': 'add_header Public-Key-Pins "{header}" always;\n',
             },
             'services': {
-                'apache': 'systemctl reload apache2',
-                'coturn': 'systemctl restart coturn',
-                'dovecot': 'systemctl restart dovecot',
-                'etherpad': 'systemctl restart etherpad',
-                'mysql': 'systemctl reload mysql',
-                'nginx': 'systemctl reload nginx',
-                'postfix': 'systemctl reload postfix',
-                'postgresql': 'systemctl reload postgresql',
-                'prosody': 'systemctl restart prosody',
-                'slapd': 'systemctl restart slapd',
-                'synapse': 'systemctl restart matrix-synapse',
-                'znc': 'systemctl restart znc'
+                'apache': 'systemctl reload-or-restart apache2',
+                'coturn': 'systemctl reload-or-restart coturn',
+                'crowdsec': 'systemctl reload-or-restart crowdsec',
+                'dovecot': 'systemctl reload-or-restart dovecot',
+                'etherpad': 'systemctl reload-or-restart etherpad',
+                'mysql': 'systemctl reload-or-restart mysql',
+                'nginx': 'systemctl reload-or-restart nginx',
+                'postfix': 'systemctl reload-or-restart postfix',
+                'postgresql': 'systemctl reload-or-restart postgresql',
+                'prosody': 'systemctl reload-or-restart prosody',
+                'slapd': 'systemctl reload-or-restart slapd',
+                'synapse': 'systemctl reload-or-restart matrix-synapse',
+                'znc': 'systemctl reload-or-restart znc',
             },
             'ct_logs': {
-                'google_pilot': {
-                    'url': 'https://ct.googleapis.com/pilot',
-                    'id': 'pLkJkLQYWBSHuxOizGdwCjw1mAT5G9+443fNDsgN3BA='
+                'google_argon': [
+                    {
+                        'log_id': '6D7Q2j71BjUy51covIlryQPTy9ERa+zraeF3fW0GvW4=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0JCPZFJOQqyEti5M8j13ALN3CAVHqkVM4yyOcKWCu2yye5yYeqDpEXYoALIgtM3TmHtNlifmt+4iatGwLpF3eA==',
+                        'url': 'https://ct.googleapis.com/logs/argon2023/',
+                        'start': '2023-01-01T00:00:00Z',
+                        'end': '2024-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '7s3QZNXbGs7FXLedtM0TojKHRny87N7DUUhZRnEftZs=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHblsqctplMVc5ramA7vSuNxUQxcomQwGAVAdnWTAWUYr3MgDHQW0LagJ95lB7QT75Ve6JgT2EVLOFGU7L3YrwA==',
+                        'url': 'https://ct.googleapis.com/logs/us1/argon2024/',
+                        'start': '2024-01-01T00:00:00Z',
+                        'end': '2025-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'TnWjJ1yaEMM4W2zU3z9S6x3w4I4bjWnAsfpksWKaOd8=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIIKh+WdoqOTblJji4WiH5AltIDUzODyvFKrXCBjw/Rab0/98J4LUh7dOJEY7+66+yCNSICuqRAX+VPnV8R1Fmg==',
+                        'url': 'https://ct.googleapis.com/logs/us1/argon2025h1/',
+                        'start': '2025-01-01T00:00:00Z',
+                        'end': '2025-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'EvFONL1TckyEBhnDjz96E/jntWKHiJxtMAWE6+WGJjo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEr+TzlCzfpie1/rJhgxnIITojqKk9VK+8MZoc08HjtsLzD8e5yjsdeWVhIiWCVk6Y6KomKTYeKGBv6xVu93zQug==',
+                        'url': 'https://ct.googleapis.com/logs/us1/argon2025h2/',
+                        'start': '2025-07-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                ],
+                'google_xenon': [
+                    {
+                        'log_id': 'rfe++nz/EMiLnT2cHj4YarRnKV3PsQwkyoWGNOvcgoo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEchY+C+/vzj5g3ZXLY3q5qY1Kb2zcYYCmRV4vg6yU84WI0KV00HuO/8XuQqLwLZPjwtCymeLhQunSxgAnaXSuzg==',
+                        'url': 'https://ct.googleapis.com/logs/xenon2023/',
+                        'start': '2023-01-01T00:00:00Z',
+                        'end': '2024-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'dv+IPwq2+5VRwmHM9Ye6NLSkzbsp3GhCCp/mZ0xaOnQ=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuWDgNB415GUAk0+QCb1a7ETdjA/O7RE+KllGmjG2x5n33O89zY+GwjWlPtwpurvyVOKoDIMIUQbeIW02UI44TQ==',
+                        'url': 'https://ct.googleapis.com/logs/eu1/xenon2024/',
+                        'start': '2024-01-01T00:00:00Z',
+                        'end': '2025-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'zxFW7tUufK/zh1vZaS6b6RpxZ0qwF+ysAdJbd87MOwg=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEguLOkEA/gQ7f6uEgK14uMFRGgblY7a+9/zanngtfamuRpcGY4fLN6xcgcMoqEuZUeFDc/239HKe2Oh/5JqkbvQ==',
+                        'url': 'https://ct.googleapis.com/logs/eu1/xenon2025h1/',
+                        'start': '2025-01-01T00:00:00Z',
+                        'end': '2025-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '3dzKNJXX4RYF55Uy+sef+D0cUN/bADoUEnYKLKy7yCo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa+Cv7QZ8Pe/ZDuRYSwTYKkeZkIl6uTaldcgEuMviqiu1aJ2IKaKlz84rmhWboD6dlByyt0ryUexA7WJHpANJhg==',
+                        'url': 'https://ct.googleapis.com/logs/eu1/xenon2025h2/',
+                        'start': '2025-07-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                ],
+                'cloudflare_nimbus': [
+                    {
+                        'log_id': 'ejKMVNi3LbYg6jjgUh7phBZwMhOFTTvSK8E6V6NS61I=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEi/8tkhjLRp0SXrlZdTzNkTd6HqmcmXiDJz3fAdWLgOhjmv4mohvRhwXul9bgW0ODgRwC9UGAgH/vpGHPvIS1qA==',
+                        'url': 'https://ct.cloudflare.com/logs/nimbus2023/',
+                        'start': '2023-01-01T00:00:00Z',
+                        'end': '2024-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '2ra/az+1tiKfm8K7XGvocJFxbLtRhIU0vaQ9MEjX+6s=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEd7Gbe4/mizX+OpIpLayKjVGKJfyTttegiyk3cR0zyswz6ii5H+Ksw6ld3Ze+9p6UJd02gdHrXSnDK0TxW8oVSA==',
+                        'url': 'https://ct.cloudflare.com/logs/nimbus2024/',
+                        'start': '2024-01-01T00:00:00Z',
+                        'end': '2025-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'zPsPaoVxCWX+lZtTzumyfCLphVwNl422qX5UwP5MDbA=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGoAaFRkZI3m0+qB5jo3VwdzCtZaSfpTgw34UfAoNLUaonRuxQWUMX5jEWhd5gVtKFEHsr6ldDqsSGXHNQ++7lw==',
+                        'url': 'https://ct.cloudflare.com/logs/nimbus2025/',
+                        'start': '2025-01-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                ],
+                'digicert_log_server': {
+                    'log_id': 'VhQGmi/XwuzT9eG9RLI+x0Z2ubyZEVzA75SYVdaJ0N0=',
+                    'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAkbFvhu7gkAW6MHSrBlpE1n4+HCFRkC5OLAjgqhkTH+/uzSfSl8ois8ZxAD2NgaTZe1M9akhYlrYkes4JECs6A==',
+                    'url': 'https://ct1.digicert-ct.com/log/',
                 },
-                'google_icarus': {
-                    'url': 'https://ct.googleapis.com/icarus',
-                    'id': 'KTxRllTIOWW6qlD8WAfUt2+/WHopctykwwz05UVH9Hg='
+                'digicert_log_server_2': {
+                    'log_id': 'h3W/51l8+IxDmV+9827/Vo1HVjb/SrVgwbTq/16ggw8=',
+                    'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEzF05L2a4TH/BLgOhNKPoioYCrkoRxvcmajeb8Dj4XQmNY+gxa4Zmz3mzJTwe33i0qMVp+rfwgnliQ/bM/oFmhA==',
+                    'url': 'https://ct2.digicert-ct.com/log/',
                 },
-                'google_rocketeer': {
-                    'url': 'https://ct.googleapis.com/rocketeer',
-                    'id': '7ku9t3XOYLrhQmkfq+GeZqMPfl+wctiDAMR7iXqo/cs='
-                },
-                'google_skydiver': {
-                    'url': 'https://ct.googleapis.com/skydiver',
-                    'id': 'u9nfvB+KcbWTlCOXqpJ7RzhXlQqrUugakJZkNo4e0YU='
-                },
-                'google_testtube': {
-                    'url': 'http://ct.googleapis.com/testtube',
-                    'id': 'sMyD5aX5fWuvfAnMKEkEhyrH6IsTLGNQt8b9JuFsbHc='
-                },
-                'google_argon2018': {
-                    'url': 'https://ct.googleapis.com/logs/argon2018',
-                    'id': 'pFASaQVaFVReYhGrN7wQP2KuVXakXksXFEU+GyIQaiU='
-                },
-                'digicert': {
-                    'url': 'https://ct1.digicert-ct.com/log',
-                    'id': 'VhQGmi/XwuzT9eG9RLI+x0Z2ubyZEVzA75SYVdaJ0N0='
-                },
-                'symantec_ct': {
-                    'url': 'https://ct.ws.symantec.com',
-                    'id': '3esdK3oNT6Ygi4GtgWhwfi6OnQHVXIiNPRHEzbbsvsw='
-                },
-                'symantec_vega': {
-                    'url': 'https://vega.ws.symantec.com',
-                    'id': 'vHjh38X2PGhGSTNNoQ+hXwl5aSAJwIG08/aRfz7ZuKU='
-                },
-                'cnnic': {
-                    'url': 'https://ctserver.cnnic.cn',
-                    'id': 'pXesnO11SN2PAltnokEInfhuD0duwgPC7L7bGF8oJjg='
-                },
-                'cloudflare_nimbus2018': {
-                    'url': 'https://ct.cloudflare.com/logs/nimbus2018',
-                    'id': '23Sv7ssp7LH+yj5xbSzluaq7NveEcYPHXZ1PN7Yfv2Q='
-                }
-            }
+                'digicert_yeti': [
+                    {
+                        'log_id': 'Nc8ZG7+xbFe/D61MbULLu7YnICZR6j/hKu+oA8M71kw=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfQ0DsdWYitzwFTvG3F4Nbj8Nv5XIVYzQpkyWsU4nuSYlmcwrAp6m092fsdXEw6w1BAeHlzaqrSgNfyvZaJ9y0Q==',
+                        'url': 'https://yeti2023.ct.digicert.com/log/',
+                        'start': '2023-01-01T00:00:00Z',
+                        'end': '2024-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'SLDja9qmRzQP5WoC+p0w6xxSActW3SyB2bu/qznYhHM=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV7jBbzCkfy7k8NDZYGITleN6405Tw7O4c4XBGA0jDliE0njvm7MeLBrewY+BGxlEWLcAd2AgGnLYgt6unrHGSw==',
+                        'url': 'https://yeti2024.ct.digicert.com/log/',
+                        'start': '2024-01-01T00:00:00Z',
+                        'end': '2025-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'fVkeEuF4KnscYWd8Xv340IdcFKBOlZ65Ay/ZDowuebg=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE35UAXhDBAfc34xB00f+yypDtMplfDDn+odETEazRs3OTIMITPEy1elKGhj3jlSR82JGYSDvw8N8h8bCBWlklQw==',
+                        'url': 'https://yeti2025.ct.digicert.com/log/',
+                        'start': '2025-01-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                ],
+                'digicert_nessie': [
+                    {
+                        'log_id': 's3N3B+GEUPhjhtYFqdwRCUp5LbFnDAuH3PADDnk2pZo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEXu8iQwSCRSf2CbITGpUpBtFVt8+I0IU0d1C36Lfe1+fbwdaI0Z5FktfM2fBoI1bXBd18k2ggKGYGgdZBgLKTg==',
+                        'url': 'https://nessie2023.ct.digicert.com/log/',
+                        'start': '2023-01-01T00:00:00Z',
+                        'end': '2024-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'c9meiRtMlnigIH1HneayxhzQUV5xGSqMa4AQesF3crU=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELfyieza/VpHp/j/oPfzDp+BhUuos6QWjnycXgQVwa4FhRIr4OxCAQu0DLwBQIfxBVISjVNUusnoWSyofK2YEKw==',
+                        'url': 'https://nessie2024.ct.digicert.com/log/',
+                        'start': '2024-01-01T00:00:00Z',
+                        'end': '2025-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '5tIxY0B3jMEQQQbXcbnOwdJA9paEhvu6hzId/R43jlA=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8vDwp4uBLgk5O59C2jhEX7TM7Ta72EN/FklXhwR/pQE09+hoP7d4H2BmLWeadYC3U6eF1byrRwZV27XfiKFvOA==',
+                        'url': 'https://nessie2025.ct.digicert.com/log/',
+                        'start': '2025-01-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                ],
+                'sectigo_sabre': [
+                    {
+                        'log_id': 'VYHUwhaQNgFK6gubVzxT8MDkOHhwJQgXL6OqHQcT0ww=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8m/SiQ8/xfiHHqtls9m7FyOMBg4JVZY9CgiixXGz0akvKD6DEL8S0ERmFe9U4ZiA0M4kbT5nmuk3I85Sk4bagA==',
+                        'url': 'https://sabre.ct.comodo.com/',
+                        'start': '2023-01-01T00:00:00Z',
+                        'end': '2024-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'ouK/1h7eLy8HoNZObTen3GVDsMa1LqLat4r4mm31F9g=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELAH2zjG8qhRhUf5reoeuptObx4ctClrIT7VU3MmToADuyhy5p7Z7RzvlT6psFhxwLsjsU1pMIUx+JwsTFF78hQ==',
+                        'url': 'https://sabre2024h1.ct.sectigo.com/',
+                        'start': '2024-01-01T00:00:00Z',
+                        'end': '2024-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'GZgQcQnw1lIuMIDSnj9ku4NuKMz5D1KO7t/OSj8WtMo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEehBMiucie20quo76a0qB1YWuA+//S/xNUz23jLt1CcnqFn7BdxbSwkV0bY3E4Yg339TzYGX8oHXwIGaOSswZ2g==',
+                        'url': 'https://sabre2024h2.ct.sectigo.com/',
+                        'start': '2024-07-01T00:00:00Z',
+                        'end': '2025-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '4JKz/AwdyOdoNh/eYbmWTQpSeBmKctZyxLBNpW1vVAQ=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfi858egjjrMyBK9NV/bbxXSkem07B1EMWvuAMAXGWgzEdtYGqFdN+9/kgpDCQa5wszGi4/o9XyxdBM20nVWrQQ==',
+                        'url': 'https://sabre2025h1.ct.sectigo.com/',
+                        'start': '2025-01-01T00:00:00Z',
+                        'end': '2025-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'GgT/SdBUHUCv9qDDv/HYxGcvTuzuI0BomGsXQC7ciX0=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhRMRLXvzk4HkuXzZZDvntYOZZnlZR2pCXta9Yy63kUuuvFbExW4JoNdkGsjBr4mL9VjYuut7g1Lp9OClzc2SzA==',
+                        'url': 'https://sabre2025h2.ct.sectigo.com/',
+                        'start': '2025-07-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                ],
+                'sectigo_mammoth': [
+                    {
+                        'log_id': 'b1N2rDHwMRnYmQCkURX/dxUcEdkCwQApBo2yCJo32RM=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7+R9dC4VFbbpuyOL+yy14ceAmEf7QGlo/EmtYU6DRzwat43f/3swtLr/L8ugFOOt1YU/RFmMjGCL17ixv66MZw==',
+                        'url': 'https://mammoth.ct.comodo.com/',
+                        'start': '2023-01-01T00:00:00Z',
+                        'end': '2024-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'KdA6G7Z0qnEc0wNbZVfBT4qni0/oOJRJ7KRT+US9JGg=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpFmQ83EkJPfDVSdWnKNZHve3n86rThlmTdCK+p1ipCTwOyDkHRRnyPzkN/JLOFRaz59rB5DQDn49TIey6D8HzA==',
+                        'url': 'https://mammoth2024h1.ct.sectigo.com/',
+                        'start': '2024-01-01T00:00:00Z',
+                        'end': '2024-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '3+FW66oFr7WcD4ZxjajAMk6uVtlup/WlagHRwTu+Ulw=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhWYiJG6+UmIKoK/DJRo2LqdgiaJlv6RfvYVqlAWBNZBUMZXnEZ6jLg+F76eIV4tjGoHBQZ197AE627nBJ/RlHg==',
+                        'url': 'https://mammoth2024h2.ct.sectigo.com/',
+                        'start': '2024-07-01T00:00:00Z',
+                        'end': '2025-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'E0rfGrWYQgl4DG/vTHqRpBa3I0nOWFdq367ap8Kr4CI=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEzxBtTB9LkqhqGvSxVdrmP5+79Uh4rpdsLqFEW6U4D2ojm1WjUQCnrCDzFTfm05yYks8DDLdhvvrPmbNd1hb5Q==',
+                        'url': 'https://mammoth2025h1.ct.sectigo.com/',
+                        'start': '2025-01-01T00:00:00Z',
+                        'end': '2025-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'rxgaKNaMo+CpikycZ6sJ+Lu8IrquvLE4o6Gd0/m2Aw0=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEiOLHs9c3o5HXs8XaB1EEK4HtwkQ7daDmZeFKuhuxnKkqhDEprh2L8TOfEi6QsRVnZqB8C1tif2yaajCbaAIWbw==',
+                        'url': 'https://mammoth2025h2.ct.sectigo.com/',
+                        'start': '2025-07-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                ],
+                'lets_encrypt_oak': [
+                    {
+                        'log_id': self._hex_to_base64('B7:3E:FB:24:DF:9C:4D:BA:75:F2:39:C5:BA:58:F4:6C:5D:FC:42:CF:7A:9F:35:C4:9E:1D:09:81:25:ED:B4:99'),
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsz0OeL7jrVxEXJu+o4QWQYLKyokXHiPOOKVUL3/TNFFquVzDSer7kZ3gijxzBp98ZTgRgMSaWgCmZ8OD74mFUQ==',
+                        'url': 'https://oak.ct.letsencrypt.org/2023/',
+                        'start': '2023-01-01T00:00:00Z',
+                        'end': '2024-01-07T00:00:00Z',
+                    },
+                    {
+                        'log_id': self._hex_to_base64('3B:53:77:75:3E:2D:B9:80:4E:8B:30:5B:06:FE:40:3B:67:D8:4F:C3:F4:C7:BD:00:0D:2D:72:6F:E1:FA:D4:17'),
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVkPXfnvUcre6qVG9NpO36bWSD+pet0Wjkv3JpTyArBog7yUvuOEg96g6LgeN5uuk4n0kY59Gv5RzUo2Wrqkm/Q==',
+                        'url': 'https://oak.ct.letsencrypt.org/2024h1/',
+                        'start': '2023-12-20T00:00:00Z',
+                        'end': '2024-07-20T00:00:00Z',
+                    },
+                    {
+                        'log_id': self._hex_to_base64('3F:17:4B:4F:D7:22:47:58:94:1D:65:1C:84:BE:0D:12:ED:90:37:7F:1F:85:6A:EB:C1:BF:28:85:EC:F8:64:6E'),
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE13PWU0fp88nVfBbC1o9wZfryUTapE4Av7fmU01qL6E8zz8PTidRfWmaJuiAfccvKu5+f81wtHqOBWa+Ss20waA==',
+                        'url': 'https://oak.ct.letsencrypt.org/2024h2/',
+                        'start': '2024-06-20T00:00:00Z',
+                        'end': '2025-01-20T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'ouMK5EXvva2bfjjtR2d3U9eCW4SU1yteGyzEuVCkR+c=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKeBpU9ejnCaIZeX39EsdF5vDvf8ELTHdLPxikl4y4EiROIQfS4ercpnMHfh8+TxYVFs3ELGr2IP7hPGVPy4vHA==',
+                        'url': 'https://oak.ct.letsencrypt.org/2025h1/',
+                        'start': '2024-12-20T00:00:00Z',
+                        'end': '2025-07-20T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'DeHyMCvTDcFAYhIJ6lUu/Ed0fLHX6TDvDkIetH5OqjQ=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtXYwB63GyNLkS9L1vqKNnP10+jrW+lldthxg090fY4eG40Xg1RvANWqrJ5GVydc9u8H3cYZp9LNfkAmqrr2NqQ==',
+                        'url': 'https://oak.ct.letsencrypt.org/2025h2/',
+                        'start': '2025-06-20T00:00:00Z',
+                        'end': '2026-01-20T00:00:00Z',
+                    },
+                ],
+            },
         }
+
+    @property
+    def exit_code(self) -> int:
+        if (ErrorCode.NONE != self.error_code):
+            return self.error_code.value
+        if (WarningCode.NONE != self.warning_code):
+            warning_exit_code = self._setting('warning_exit_code')
+            if (self.args.warning_exit_code):
+                warning_exit_code = True
+            if (self.args.no_warning_exit_code):
+                warning_exit_code = False
+            if (warning_exit_code):
+                return self.warning_code.value
+        return 0
+
+    def _hex_to_base64(self, hex: str) -> str:
+        return base64.b64encode(binascii.unhexlify(hex.replace(':', ''))).decode('ascii')
 
     def _load_yaml(self, stream, object_pairs_hook=dict):
         class OrderedLoader(yaml.SafeLoader):
@@ -451,7 +662,7 @@ class AcmeManager(object):
                     return json.load(config_file, object_pairs_hook=collections.OrderedDict)
                 return self._load_yaml(config_file, object_pairs_hook=collections.OrderedDict)
         except Exception as error:
-            self._fatal('Error reading config file ', config_file_path, ': ', error, '\n')
+            self._fatal('Error reading config file ', config_file_path, ': ', error, '\n', code=ErrorCode.CONFIG)
 
     def _find_configs(self, config_file_path):
         config_dir = os.path.dirname(config_file_path)
@@ -480,10 +691,10 @@ class AcmeManager(object):
                 config_file_path = os.path.join(search_path, file_path) + extension
                 if (os.path.isfile(config_file_path)):
                     config = self._load_config_file(config_file_path)
-                    for file_path in self._find_configs(config_file_path):
+                    for file_path in sorted(self._find_configs(config_file_path)):
                         config = self._merge_dicts(config, self._load_config_file(file_path))
                     return (config, config_file_path)
-        self._fatal('Config file ', file_path, file_extension, ' not found\n')
+        self._fatal('Config file ', file_path, file_extension, ' not found\n', code=ErrorCode.CONFIG)
 
     def _message(self, *args):
         message = ''
@@ -524,20 +735,21 @@ class AcmeManager(object):
         if (self._setting('log_level') == 'detail'):
             self._log(*args)
 
-    def _warn(self, *args, color='red', style='normal'):
+    def _warn(self, *args, code: WarningCode = None, color='red', style='normal'):
+        self.warning_code = code if (code is not None) else WarningCode.GENERAL
         if (not self.args.quiet):
             self._colorize(sys.stderr, color, style, self._message(*args))
         if (self._setting('log_level') in ['normal', 'debug', 'verbose']):
             self._log(*args)
 
-    def _error(self, *args, color='red', style='bold'):
-        self.exit_code = 1
+    def _error(self, *args, code: ErrorCode = None, color='red', style='bold'):
+        self.error_code = code if (code is not None) else ErrorCode.GENERAL
         message = self._message(*args)
         self._colorize(sys.stderr, color, style, message)
         self._log(message)
 
-    def _fatal(self, *args, color='red', style='bold'):
-        self.exit_code = 2
+    def _fatal(self, *args, code: ErrorCode = None, color='red', style='bold'):
+        self.error_code = code if (code is not None) else ErrorCode.FATAL
         message = self._message(*args)
         self._colorize(sys.stderr, color, style, message)
         self._log(message)
@@ -547,12 +759,13 @@ class AcmeManager(object):
         if (hasattr(self, 'config') and self._directory('log') and self._file_name('log') and self._setting('log_level')):
             log_file_path = self._file_path('log', self.script_name)
             try:
-                with self._open_file(log_file_path, mode='a+', chmod=0o640, warn=False) as log_file:
+                with self._open_file(log_file_path, mode='a+', chmod=0o640, warn=False,
+                                     user=self._setting('log_user'), group=self._setting('log_group')) as log_file:
                     log_file.write(self._message(*args))
             except Exception:
                 sys.stderr.write('Unable to write to log file ' + log_file_path + '\n')
 
-    def _makedir(self, dir_path, chmod=None, warn=True):
+    def _makedir(self, dir_path, *, chmod=None, warn=True, user=None, group=None):
         if (not os.path.isdir(dir_path)):
             try:
                 os.makedirs(dir_path)
@@ -567,22 +780,26 @@ class AcmeManager(object):
                         os.chmod(dir_path, chmod)
                     except PermissionError as error:
                         if (warn):
-                            self._error('Unable to set directory mode for ', dir_path, '\n', self._indent(error), '\n')
+                            self._error('Unable to set directory mode for ', dir_path, '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
                     try:
-                        os.chown(dir_path, self._get_user_id(self._setting('file_user')), self._get_group_id(self._setting('file_group')))
+                        os.chown(dir_path, self._get_user_id(user or self._setting('file_user')), self._get_group_id(group or self._setting('file_group')))
                     except PermissionError as error:
                         if (warn):
                             self._error('Unable to set directory ownership for ', dir_path, ' to ',
-                                        self._setting('file_user'), ':', self._setting('file_group'), '\n', self._indent(error), '\n')
+                                        self._setting('file_user'), ':', self._setting('file_group'), '\n', self._indent(error), '\n',
+                                        code=ErrorCode.PERMISSION)
             except Exception as error:
                 if (warn):
-                    self._error('Unable to create directory ', dir_path, '\n', self._indent(error), '\n')
+                    self._error('Unable to create directory ', dir_path, '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
 
-    def _open_file(self, file_path, mode='r', chmod=0o666, warn=True):
+    def _open_file(self, file_path, *, mode='r', chmod=0o666, warn=True, user=None, group=None):
         def opener(file_path, flags):
-            return os.open(file_path, flags, mode=chmod)
+            file = os.open(file_path, flags, mode=chmod)
+            if (user or group):
+                os.chown(file_path, self._get_user_id(user or self._setting('file_user')), self._get_group_id(group or self._setting('file_group')))
+            return file
         if ((('w' in mode) or ('a' in mode)) and isinstance(file_path, str)):
-            self._makedir(os.path.dirname(file_path), chmod=chmod, warn=warn)
+            self._makedir(os.path.dirname(file_path), chmod=chmod, warn=warn, user=user, group=group)
         return open(file_path, mode, opener=opener)
 
     def _archive_file(self, file_type, file_path, archive_name='', archive_date=datetime.datetime.now()):
@@ -591,7 +808,7 @@ class AcmeManager(object):
                                              archive_name,
                                              archive_date.strftime('%Y_%m_%d_%H%M%S') if (archive_date) else '',
                                              file_type + '.' + os.path.basename(file_path))
-            self._makedir(os.path.dirname(archive_file_path), 0o640)
+            self._makedir(os.path.dirname(archive_file_path), chmod=0o640)
             shutil.move(file_path, archive_file_path)
             self._detail('Archived ', file_path, ' as ', archive_file_path, '\n')
             return (file_path, archive_file_path)
@@ -609,25 +826,25 @@ class AcmeManager(object):
         except Exception:
             return -1
 
-    def _rename_file(self, old_file_path, new_file_path, chmod=None, timestamp=None):
+    def _rename_file(self, old_file_path, new_file_path, *, chmod=None, timestamp=None, user=None, group=None):
         if (os.path.isfile(old_file_path)):
-            self._makedir(os.path.dirname(new_file_path), chmod)
+            self._makedir(os.path.dirname(new_file_path), chmod=chmod)
             shutil.move(old_file_path, new_file_path)
             if (chmod):
                 try:
                     os.chmod(new_file_path, chmod)
                 except PermissionError as error:
-                    self._error('Unable to set file mode for ', new_file_path, '\n', self._indent(error), '\n')
+                    self._error('Unable to set file mode for ', new_file_path, '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
             if (timestamp):
                 try:
                     os.utime(new_file_path, (timestamp, timestamp))
                 except PermissionError as error:
-                    self._error('Unable to set file time for ', new_file_path, '\n', self._indent(error), '\n')
+                    self._error('Unable to set file time for ', new_file_path, '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
             try:
-                os.chown(new_file_path, self._get_user_id(self._setting('file_user')), self._get_group_id(self._setting('file_group')))
+                os.chown(new_file_path, self._get_user_id(user or self._setting('file_user')), self._get_group_id(group or self._setting('file_group')))
             except PermissionError as error:
                 self._error('Unable to set file ownership for ', new_file_path, ' to ',
-                            self._setting('file_user'), ':', self._setting('file_group'), '\n', self._indent(error), '\n')
+                            self._setting('file_user'), ':', self._setting('file_group'), '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
             return new_file_path
         return None
 
@@ -752,7 +969,7 @@ class AcmeManager(object):
         if (not self._setting('reload_zone_command')):
             if (critical):
                 self._fatal('reload_zone_command not configured and needed for local DNS updates, ',
-                            'either configure local DNS updates or switch to http authorizations\n')
+                            'either configure local DNS updates or switch to http authorizations\n', code=ErrorCode.CONFIG)
             return
         try:
             subprocess.check_output([self._setting('reload_zone_command'), zone_name], stderr=subprocess.STDOUT)
@@ -760,43 +977,49 @@ class AcmeManager(object):
             time.sleep(2)
         except subprocess.CalledProcessError as error:
             if (critical):
-                self._fatal('Failed to reload zone ', zone_name, ', code: ', error.returncode, '\n', self._indent(error.output), '\n')
+                self._fatal('Failed to reload zone ', zone_name, ', code: ', error.returncode, '\n', self._indent(error.output), '\n', code=ErrorCode.DNS)
             else:
-                self._warn('Failed to reload zone ', zone_name, ', code: ', error.returncode, '\n', self._indent(error.output), '\n')
+                self._warn('Failed to reload zone ', zone_name, ', code: ', error.returncode, '\n', self._indent(error.output), '\n', code=WarningCode.DNS)
         except Exception as error:
             if (critical):
-                self._fatal('Failed to reload zone ', zone_name, '\n', self._indent(error), '\n')
+                self._fatal('Failed to reload zone ', zone_name, '\n', self._indent(error), '\n', code=ErrorCode.DNS)
             else:
-                self._warn('Failed to reload zone ', zone_name, '\n', self._indent(error), '\n')
+                self._warn('Failed to reload zone ', zone_name, '\n', self._indent(error), '\n', code=WarningCode.DNS)
 
     def _dns_request(self, name, type, name_server=None):
-        try:
-            request = DNS.Request(server=name_server) if (name_server) else DNS.Request()
-            response = request.req(name=name, qtype=type, protocol='tcp')
-            attempt_count = 9
-            while (('SERVFAIL' == response.header['status']) and (0 < attempt_count)):
-                time.sleep(5)
+        attempt_count = 9
+        request = DNS.Request(server=name_server) if (name_server) else DNS.Request()
+        while (True):
+            try:
                 response = request.req(name=name, qtype=type, protocol='tcp')
+                if ('SERVFAIL' == response.header['status']):
+                    raise Exception('Server failure')
+                if ('NOERROR' == response.header['status']):
+                    return (response, None)
+                return (None, response.header['status'])
+            except Exception as error:
                 attempt_count -= 1
-            if ('NOERROR' == response.header['status']):
-                return (response, None)
-            return (None, response.header['status'])
-        except Exception as error:
-            self._error('DNS Error: ', error, '; requesting ', str(type), ' record for ', name, ((' @' + name_server) if (name_server) else ''), '\n')
+                if (0 < attempt_count):
+                    self._detail(f'DNS Error: {error}; retries {attempt_count}', '\n')
+                    time.sleep(5)
+                else:
+                    self._error(f'DNS Error: {error}; requesting {type}, record for {name}', ((f' @{name_server}') if (name_server) else ''), '\n',
+                                code=ErrorCode.DNS)
+                    break
         return (None, None)
 
     def _get_primary_name_server(self, zone_name):
         response, status = self._dns_request(zone_name, 'SOA')
         if (response):
             return response.answers[0]['data'][0]
-        self._warn('Unable to find primary name server for ', zone_name, ' ', status, '\n')
+        self._warn('Unable to find primary name server for ', zone_name, ' ', status, '\n', code=WarningCode.DNS)
         return None
 
     def _get_name_servers(self, zone_name):
         response, status = self._dns_request(zone_name, 'NS')
         if (response):
             return [answer['data'] for answer in response.answers]
-        self._warn('Unable to find name servers for ', zone_name, ' ', status, '\n')
+        self._warn('Unable to find name servers for ', zone_name, ' ', status, '\n', code=WarningCode.DNS)
         return []
 
     def _lookup_dns_challenge(self, name_server, domain_name):
@@ -822,9 +1045,10 @@ class AcmeManager(object):
             self._debug(operation, ' records for ', zone_name, '\n')
             return True
         except subprocess.CalledProcessError as error:
-            self._warn(operation, ' records failed for ', zone_name, ', code: ', error.returncode, '\n', self._indent(error.output), '\n')
+            self._warn(operation, ' records failed for ', zone_name, ', code: ', error.returncode, '\n', self._indent(error.output), '\n',
+                       code=WarningCode.DNS)
         except Exception as error:
-            self._warn(operation, ' records failed for ', zone_name, '\n', self._indent(error), '\n')
+            self._warn(operation, ' records failed for ', zone_name, '\n', self._indent(error), '\n', code=WarningCode.DNS)
         return False
 
     def _set_dns_challenges(self, zone_name, zone_key, challenges):
@@ -861,7 +1085,7 @@ class AcmeManager(object):
             if (tlsa_data.usage in usage):
                 usage_id = usage[tlsa_data.usage]
             else:
-                self._error('Unknown TLSA usage ', tlsa_data.usage, '\n')
+                self._error('Unknown TLSA usage ', tlsa_data.usage, '\n', code=ErrorCode.CONFIG)
                 usage_id = usage['pkix-ee']
             if ('cert' == tlsa_data.selector):
                 if (tlsa_data.usage in ('pkix-ee', 'dane-ee')):
@@ -920,11 +1144,12 @@ class AcmeManager(object):
                     output = subprocess.check_output(service_command, shell=True, stderr=subprocess.STDOUT)
                     reloaded = True
                     if (output):
-                        self._warn('Service ', service_name, ' responded to reload with:\n', output, '\n')
+                        self._warn('Service ', service_name, ' responded to reload with:\n', output, '\n', code=WarningCode.SERVICE)
                 except subprocess.CalledProcessError as error:
-                    self._warn('Service ', service_name, ' reload failed, code: ', error.returncode, '\n', self._indent(error.output), '\n')
+                    self._warn('Service ', service_name, ' reload failed, code: ', error.returncode, '\n', self._indent(error.output), '\n',
+                               code=WarningCode.SERVICE)
             else:
-                self._error('Service ', service_name, ' does not have registered reload command\n')
+                self._error('Service ', service_name, ' does not have registered reload command\n', code=ErrorCode.CONFIG)
         return reloaded
 
     def generate_rsa_key(self, key_size):
@@ -941,7 +1166,7 @@ class AcmeManager(object):
         elif ('secp521r1' == key_curve):
             key = ec.generate_private_key(ec.SECP521R1(), default_backend())
         else:
-            self._error('Unsupported key curve: ', key_curve, '\n')
+            self._error('Unsupported key curve: ', key_curve, '\n', code=ErrorCode.CONFIG)
             return None
 #        return OpenSSL.crypto.PKey.from_cryptography_key(key)  # currently not supported
         key_pem = key.private_bytes(encoding=Encoding.PEM, format=PrivateFormat.TraditionalOpenSSL, encryption_algorithm=NoEncryption())
@@ -952,7 +1177,7 @@ class AcmeManager(object):
             return self.generate_rsa_key(*options)
         if ('ecdsa' == key_type):
             return self.generate_ecdsa_key(*options)
-        self._error('Unknown key type ', key_type.upper(), '\n')
+        self._error('Unknown key type ', key_type.upper(), '\n', code=ErrorCode.CONFIG)
         return None
 
     def key_cipher_data(self, private_key_name, force_prompt=False):
@@ -1031,7 +1256,7 @@ class AcmeManager(object):
             return (private_key.bits() == options[0])
         if ('ecdsa' == key_type):
             return (private_key.to_cryptography_key().curve.name == options[0])
-        self._error('Unknown key type ', key_type.upper(), '\n')
+        self._error('Unknown key type ', key_type.upper(), '\n', code=ErrorCode.CONFIG)
         return False
 
     def _private_key_descripton(self, key_type, options):
@@ -1039,7 +1264,7 @@ class AcmeManager(object):
             return '{key_size} bits'.format(key_size=options[0])
         if ('ecdsa' == key_type):
             return 'curve {key_curve}'.format(key_curve=options[0])
-        self._error('Unknown key type ', key_type.upper(), '\n')
+        self._error('Unknown key type ', key_type.upper(), '\n', code=ErrorCode.PERMISSION)
         return ''
 
     def _public_key_bytes(self, private_key):
@@ -1251,7 +1476,7 @@ class AcmeManager(object):
                 openssl.communicate(input=dhparam_pem.encode('ascii'))
                 return (0 == openssl.returncode)
             except Exception as error:
-                self._fatal('Unable to run openssl dhparam -check\n', error, '\n')
+                self._fatal('Unable to run openssl dhparam -check\n', error, '\n', code=ErrorCode.PARAM)
         return False
 
     def check_ecparam(self, ecparam_pem):
@@ -1262,7 +1487,7 @@ class AcmeManager(object):
                 openssl.communicate(input=ecparam_pem.encode('ascii'))
                 return (0 == openssl.returncode)
             except Exception as error:
-                self._fatal('Unable to run openssl ecparam -check\n', error, '\n')
+                self._fatal('Unable to run openssl ecparam -check\n', error, '\n', code=ErrorCode.PARAM)
         return False
 
     def dhparam_size(self, dhparam_pem):
@@ -1273,7 +1498,7 @@ class AcmeManager(object):
                 if (match):
                     return int(match.group(1))
             except Exception as error:
-                self._fatal('Unable to run openssl dhparam -text\n', error, '\n')
+                self._fatal('Unable to run openssl dhparam -text\n', error, '\n', code=ErrorCode.PARAM)
         return 0
 
     def ecparam_curves(self, ecparam_pem):
@@ -1288,7 +1513,7 @@ class AcmeManager(object):
                     if (match):
                         curves.append(match.group(1))
                 except Exception as error:
-                    self._fatal('Unable to run openssl ecparam -text\n', error, '\n')
+                    self._fatal('Unable to run openssl ecparam -text\n', error, '\n', code=ErrorCode.PARAM)
             else:
                 ecparam_pem = None
         return curves if (curves) else None
@@ -1336,13 +1561,25 @@ class AcmeManager(object):
     def _sct_datetime(self, sct_timestamp):
         return datetime.datetime.utcfromtimestamp(sct_timestamp / 1000)
 
-    def fetch_sct(self, ct_log_name, certificate, chain):
+    def _get_ct_log(self, ct_log_name, certificate):
         ct_log = self._config('ct_logs', ct_log_name)
+        if (isinstance(ct_log, list)):
+            not_after = self._datetime_from_asn1_generaltime(certificate.get_notAfter())
+            for log in ct_log:
+                start = datetime.datetime.strptime(log.get('start', '2000-01-01T00:00:00Z'), '%Y-%m-%dT%H:%M:%SZ')
+                end = datetime.datetime.strptime(log.get('end', '2999-01-01T00:00:00Z'), '%Y-%m-%dT%H:%M:%SZ')
+                if ((start <= not_after) and (not_after < end)):
+                    return log
+            return None
+        return ct_log
+
+    def fetch_sct(self, ct_log_name, certificate, chain):
+        ct_log = self._get_ct_log(ct_log_name, certificate)
         if (ct_log and ('url' in ct_log)):
             certificates = ([base64.b64encode(self._certificate_bytes(certificate)).decode('ascii')]
                             + [base64.b64encode(self._certificate_bytes(chain_certificate)).decode('ascii') for chain_certificate in chain])
             request_data = json.dumps({'chain': certificates}).encode('ascii')
-            request = urllib.request.Request(url=ct_log['url'] + '/ct/v1/add-chain', data=request_data)
+            request = urllib.request.Request(url=urllib.parse.urljoin(ct_log['url'] + '/', 'ct/v1/add-chain'), data=request_data)
             request.add_header('Content-Type', 'application/json')
             try:
                 with urllib.request.urlopen(request) as response:
@@ -1351,20 +1588,21 @@ class AcmeManager(object):
             except urllib.error.HTTPError as error:
                 if ((400 <= error.code) and (error.code < 500)):
                     self._warn('Unable to retrieve SCT from log ', ct_log_name, ' HTTP error: ', error.code, ' ', error.reason, '\n',
-                               self._indent(error.read()), '\n')
+                               self._indent(error.read()), '\n', code=WarningCode.SCT)
                 else:
-                    self._warn('Unable to retrieve SCT from log ', ct_log_name, ' HTTP error: ', error.code, ' ', error.reason, '\n')
+                    self._warn('Unable to retrieve SCT from log ', ct_log_name, ' HTTP error: ', error.code, ' ', error.reason, '\n',
+                               code=WarningCode.SCT)
             except urllib.error.URLError as error:
-                self._warn('Unable to retrieve SCT from log ', ct_log_name, ' ', error.reason, '\n')
+                self._warn('Unable to retrieve SCT from log ', ct_log_name, ' ', error.reason, '\n', code=WarningCode.SCT)
             except Exception as error:
-                self._warn('Unable to retrieve SCT from log ', ct_log_name, ' ', error, '\n')
+                self._warn('Unable to retrieve SCT from log ', ct_log_name, ' ', error, '\n', code=WarningCode.SCT)
         else:
-            self._error('Unknown CT log: ', ct_log_name, '\n')
+            self._error('Unknown CT log: ', ct_log_name, '\n', code=ErrorCode.CONFIG)
         return None
 
-    def load_sct(self, file_name, key_type, ct_log_name):
+    def load_sct(self, file_name, key_type, ct_log_name, certificate):
         try:
-            ct_log = self._config('ct_logs', ct_log_name)
+            ct_log = self._get_ct_log(ct_log_name, certificate)
             if (ct_log and ('id' in ct_log)):
                 sct_file_path = self._file_path('sct', file_name, key_type, ct_log_name=ct_log_name)
                 with open(sct_file_path, 'rb') as sct_file:
@@ -1382,8 +1620,8 @@ class AcmeManager(object):
             pass
         return None
 
-    def save_sct(self, file_name, key_type, ct_log_name, sct_data):
-        ct_log = self._config('ct_logs', ct_log_name)
+    def save_sct(self, file_name, key_type, ct_log_name, sct_data, certificate):
+        ct_log = self._get_ct_log(ct_log_name, certificate)
         if (ct_log):
             with FileTransaction('sct', self._file_path('sct', file_name, key_type, ct_log_name=ct_log_name), chmod=0o640, mode='wb') as transaction:
                 extensions = base64.b64decode(sct_data.extensions)
@@ -1430,13 +1668,14 @@ class AcmeManager(object):
                 return False
             if ((400 <= error.code) and (error.code < 500)):
                 self._warn('Unable to retrieve OCSP response from ', ocsp_url, ' HTTP error: ', error.code, ' ', error.reason, '\n',
-                           self._indent(error.read()), '\n')
+                           self._indent(error.read()), '\n', code=WarningCode.OCSP)
             else:
-                self._warn('Unable to retrieve OCSP response from ', ocsp_url, ' HTTP error: ', error.code, ' ', error.reason, '\n')
+                self._warn('Unable to retrieve OCSP response from ', ocsp_url, ' HTTP error: ', error.code, ' ', error.reason, '\n',
+                           code=WarningCode.OCSP)
         except urllib.error.URLError as error:
-            self._warn('Unable to retrieve OCSP response from ', ocsp_url, ' ', error.reason, '\n')
+            self._warn('Unable to retrieve OCSP response from ', ocsp_url, ' ', error.reason, '\n', code=WarningCode.OCSP)
         except Exception as error:
-            self._warn('Unable to retrieve OCSP response from ', ocsp_url, ' ', error, '\n')
+            self._warn('Unable to retrieve OCSP response from ', ocsp_url, ' ', error, '\n', code=WarningCode.OCSP)
         return None
 
     def load_oscp_response(self, file_name, key_type):
@@ -1482,7 +1721,7 @@ class AcmeManager(object):
             try:
                 self.hooks[hook_name].append(hook.format(**args))
             except KeyError as error:
-                self._error('Invalid hook specification for ', hook_name, ', unknown key ', error, '\n')
+                self._error('Invalid hook specification for ', hook_name, ', unknown key ', error, '\n', code=ErrorCode.PERMISSION)
 
     def _call_hooks(self):
         for hook_name, hooks in self.hooks.items():
@@ -1491,9 +1730,9 @@ class AcmeManager(object):
                     self._debug('Calling hook ', hook_name, ': ', hook, '\n')
                     self._status(subprocess.check_output(hook, stderr=subprocess.STDOUT, shell=True))
                 except subprocess.CalledProcessError as error:
-                    self._error('Hook ', hook_name, ' returned error, code: ', error.returncode, '\n', self._indent(error.output), '\n')
+                    self._error('Hook ', hook_name, ' returned error, code: ', error.returncode, '\n', self._indent(error.output), '\n', code=ErrorCode.HOOK)
                 except Exception as error:
-                    self._error('Failed to call hook ', hook_name, ': ', hook, '\n', self._indent(error), '\n')
+                    self._error('Failed to call hook ', hook_name, ': ', hook, '\n', self._indent(error), '\n', code=ErrorCode.HOOK)
         self._clear_hooks()
 
     def _clear_hooks(self):
@@ -1523,23 +1762,25 @@ class AcmeManager(object):
         temp_dir = self._directory('temp') if (self._directory('temp')) else tempfile.gettempdir()
         self._makedir(temp_dir)
         if (not os.path.exists(temp_dir)):
-            self._fatal('Unable to create temp directory: "', temp_dir, '"\n')
+            self._fatal('Unable to create temp directory: "', temp_dir, '"\n', code=ErrorCode.PERMISSION)
         FileTransaction.temp_dir = temp_dir
 
         default_verify = self._setting_list('verify')
         if (default_verify):
             verify_list = []
             for verify in default_verify:
+                if (verify is None):
+                    continue
                 if (isinstance(verify, int)):
                     verify = {'port': verify, 'starttls': None, 'protocol': None}
                 elif (isinstance(verify, dict)):
                     if ('port' not in verify):
-                        self._fatal('verify missing port definition')
+                        self._fatal('verify missing port definition', code=ErrorCode.CONFIG)
                     if (isinstance(verify['port'], str)):
                         try:
                             verify['port'] = int(verify['port'])
                         except Exception:
-                            self._fatal('Invalid port definition ', verify['port'])
+                            self._fatal('Invalid port definition ', verify['port'], code=ErrorCode.CONFIG)
                     if ('starttls' not in verify):
                         verify['starttls'] = None
                     if ('protocol' not in verify):
@@ -1564,7 +1805,7 @@ class AcmeManager(object):
                             del certificates[certificate_name][config_key]
                     private_keys[certificate_name]['certificates'][certificate_name] = certificates[certificate_name]
                 else:
-                    self._fatal('Certificate ', certificate_name, ' already configured with private key\n')
+                    self._fatal('Certificate ', certificate_name, ' already configured with private key\n', code=ErrorCode.CONFIG)
             del self.config['certificates']
 
         for private_key_name in private_keys:
@@ -1578,7 +1819,7 @@ class AcmeManager(object):
 
             key_certificates = private_keys[private_key_name].get('certificates', {})
             if (not key_certificates):
-                self._fatal('No certificates defined for private key ', private_key_name, '\n')
+                self._fatal('No certificates defined for private key ', private_key_name, '\n', code=ErrorCode.CONFIG)
             all_certificate_key_types = set()
             private_key_types = list(self._get_key_options(private_keys[private_key_name]).keys())
             for certificate_name in key_certificates:
@@ -1598,18 +1839,21 @@ class AcmeManager(object):
                 for zone_name in key_certificates[certificate_name]['alt_names']:
                     alt_names += self._get_domain_names(key_certificates[certificate_name]['alt_names'], zone_name)
                 if (common_name not in alt_names):
-                    self._fatal('Certificate common name "', common_name, '" not listed in alt_names in certificate ', certificate_name, '\n')
+                    self._fatal('Certificate common name "', common_name, '" not listed in alt_names in certificate ', certificate_name, '\n',
+                                code=ErrorCode.CONFIG)
                 overlap_hosts = alt_names
                 for host_name in alt_names:
                     overlap_hosts = overlap_hosts[1:]
                     overlap_host_name = self._host_in_list(host_name, overlap_hosts)
                     if (overlap_host_name):
-                        self._fatal('alt_name ', host_name, ' conflicts with ', overlap_host_name, ' in certificate ', certificate_name, '\n')
+                        self._fatal('alt_name ', host_name, ' conflicts with ', overlap_host_name, ' in certificate ', certificate_name, '\n',
+                                    code=ErrorCode.CONFIG)
 
                 certificate_key_types = self._get_list(key_certificates[certificate_name], 'key_types', private_key_types)
                 for key_type in certificate_key_types:
                     if (key_type not in private_key_types):
-                        self._fatal('Certificate ', certificate_name, ' defines key type ', key_type, ' that is not present in private key\n')
+                        self._fatal('Certificate ', certificate_name, ' defines key type ', key_type, ' that is not present in private key\n',
+                                    code=ErrorCode.CONFIG)
                 key_certificates[certificate_name]['key_types'] = certificate_key_types
                 all_certificate_key_types |= set(certificate_key_types)
 
@@ -1623,16 +1867,18 @@ class AcmeManager(object):
                 if ('verify' in key_certificates[certificate_name]):
                     verify_list = []
                     for verify in self._get_list(key_certificates[certificate_name], 'verify'):
+                        if (verify is None):
+                            continue
                         if (isinstance(verify, int)):
                             verify = {'port': verify, 'starttls': None, 'protocol': None}
                         elif (isinstance(verify, dict)):
                             if ('port' not in verify):
-                                self._fatal('verify missing port definition in certificate ', certificate_name, '\n')
+                                self._fatal('verify missing port definition in certificate ', certificate_name, '\n', code=ErrorCode.CONFIG)
                             if (isinstance(verify['port'], str)):
                                 try:
                                     verify['port'] = int(verify['port'])
                                 except Exception:
-                                    self._fatal('Invalid port definition ', verify['port'], ' in certificate ', certificate_name, '\n')
+                                    self._fatal('Invalid port definition ', verify['port'], ' in certificate ', certificate_name, '\n', code=ErrorCode.CONFIG)
                             if ('starttls' not in verify):
                                 verify['starttls'] = None
                             if ('protocol' not in verify):
@@ -1640,7 +1886,7 @@ class AcmeManager(object):
                             if ('hosts' in verify):
                                 for host_name in self._get_list(verify, 'hosts'):
                                     if (not self._host_in_list(host_name, alt_names)):
-                                        self._fatal('Verify host ', host_name, ' not specified in certificate ', certificate_name, '\n')
+                                        self._fatal('Verify host ', host_name, ' not specified in certificate ', certificate_name, '\n', code=ErrorCode.CONFIG)
                         verify_list.append(verify)
                     key_certificates[certificate_name]['verify'] = verify_list
                 else:
@@ -1664,11 +1910,11 @@ class AcmeManager(object):
                 client_key_file.write(client_key_pem.decode('ascii'))
                 self._status('Client key exported to ', client_key_file_path, '\n')
         except Exception as error:
-            self._fatal('Unbale to write client key to ', client_key_file_path, '\n', error, '\n')
+            self._fatal('Unbale to write client key to ', client_key_file_path, '\n', error, '\n', code=ErrorCode.PERMISSION)
 
     def connect_client(self):
         resource_dir = os.path.join(self.script_dir, self._directory('resource'))
-        self._makedir(resource_dir, 0o600)
+        self._makedir(resource_dir, chmod=0o600)
         generated_client_key = False
         client_key_path = os.path.join(resource_dir, 'client_key.json')
         if (os.path.isfile(client_key_path)):
@@ -1701,14 +1947,14 @@ class AcmeManager(object):
                                                verify_ssl=self._setting('acme_directory_verify_ssl'))
                 self.acme_client = client.BackwardsCompatibleClientV2(network, self.client_key, self._setting('acme_directory_url'))
             except Exception as error:
-                self._fatal("Can't connect to ACME service.\n", error, '\n')
+                self._fatal("Can't connect to ACME service.\n", error, '\n', code=ErrorCode.ACME)
         else:
             self._detail('Registering client\n')
             try:
                 network = client.ClientNetwork(self.client_key, user_agent=self._user_agent(), verify_ssl=self._setting('acme_directory_verify_ssl'))
                 self.acme_client = client.BackwardsCompatibleClientV2(network, self.client_key, self._setting('acme_directory_url'))
             except Exception as error:
-                self._fatal("Can't connect to ACME service.\n", error, '\n')
+                self._fatal("Can't connect to ACME service.\n", error, '\n', code=ErrorCode.ACME)
 
             def _accept_tos(tos):
                 if (sys.stdin.isatty() and (not self.args.accept)):
@@ -1724,7 +1970,7 @@ class AcmeManager(object):
                 reg = messages.NewRegistration.from_data(email=self._account('email'))
                 registration = self.acme_client.new_account_and_tos(reg, _accept_tos)
             except Exception as error:
-                self._fatal("Can't register with ACME service.\n", error, '\n')
+                self._fatal("Can't register with ACME service.\n", error, '\n', code=ErrorCode.ACME)
 
             transactions = []
             if (generated_client_key):
@@ -1740,7 +1986,7 @@ class AcmeManager(object):
             try:
                 self._commit_file_transactions(transactions, archive_name='client')
             except Exception:
-                self._fatal('Unable to save registration to ', registration_path, '\n')
+                self._fatal('Unable to save registration to ', registration_path, '\n', code=ErrorCode.PERMISSION)
 
     def disconnect_client(self):
         if (self.acme_client):
@@ -1750,7 +1996,7 @@ class AcmeManager(object):
         if (hasattr(self, '_public_suffixes')):
             return
         resource_dir = os.path.join(self.script_dir, self._directory('resource'))
-        self._makedir(resource_dir, 0o600)
+        self._makedir(resource_dir, chmod=0o600)
         public_suffix_list_path = os.path.join(resource_dir, 'public_suffix_list.dat')
         fetch = True
         last_update = None
@@ -1772,7 +2018,7 @@ class AcmeManager(object):
                         with open(public_suffix_list_path, 'wb') as public_suffix_list_file:
                             public_suffix_list_file.write(list_bytes)
                     except Exception as error:
-                        self._fatal('Unable to write public suffix list to ', public_suffix_list_path, '\n', error, '\n')
+                        self._fatal('Unable to write public suffix list to ', public_suffix_list_path, '\n', error, '\n', code=ErrorCode.PERMISSION)
             except urllib.error.HTTPError as error:
                 if ((400 <= error.code) and (error.code < 500)):
                     self._warn('Unable to retrieve public suffix list from ', public_suffix_list_url, ' HTTP error: ', error.code, ' ', error.reason, '\n',
@@ -1808,7 +2054,7 @@ class AcmeManager(object):
                             list[part] = {}
                         list = list[part]
         if (not self._public_suffixes):
-            self._fatal('Unable to load public suffix list\n')
+            self._fatal('Unable to load public suffix list\n', code=ErrorCode.PERMISSION)
 
     def _split_registered_domain(self, domain_name):
         self._load_public_suffix_list()
@@ -1854,9 +2100,9 @@ class AcmeManager(object):
                     authorization_resources[domain_name] = authorization_resource
                     self._debug('Requesting authorization for ', domain_name, '\n')
                 else:
-                    self._warn(domain_name, ' not authorized\n')
+                    self._warn(domain_name, ' not authorized\n', code=WarningCode.AUTH)
             else:
-                self._fatal('Unexpected status "', authorization_resource.body.status, '" for authorization of ', domain_name, '\n')
+                self._fatal('Unexpected status "', authorization_resource.body.status, '" for authorization of ', domain_name, '\n', code=ErrorCode.ACME)
 
         # set challenge responses
         challenge_types = {}
@@ -1873,22 +2119,23 @@ class AcmeManager(object):
                         challenge_types[domain_name] = 'http-01'
                         challenge = self._get_challenge(authorization_resource, challenge_types[domain_name])
                         if (not challenge):
-                            self._error('Unable to use http-01 challenge for ', domain_name, '\n')
+                            self._error('Unable to use http-01 challenge for ', domain_name, '\n', code=ErrorCode.ACME)
                             continue
                         challenge_file_path = os.path.join(http_challenge_directory, challenge.chall.encode('token'))
                         self._debug('Setting http acme-challenge for ', domain_name, ' in file ', challenge_file_path, '\n')
                         try:
-                            with self._open_file(challenge_file_path, 'w', 0o644) as challenge_file:
+                            with self._open_file(challenge_file_path, mode='w', chmod=0o644) as challenge_file:
                                 challenge_file.write(challenge.validation(self.client_key))
                             challenge_http_responses[domain_name] = challenge_file_path
                             self._add_hook('set_http_challenge', domain=domain_name, challenge_file=challenge_http_responses[domain_name])
                         except Exception as error:
-                            self._error('Unable to create acme-challenge file ', challenge_file_path, '\n', self._indent(error), '\n')
+                            self._error('Unable to create acme-challenge file ', challenge_file_path, '\n', self._indent(error), '\n',
+                                        code=ErrorCode.PERMISSION)
                     else:
                         challenge_types[domain_name] = 'dns-01'
                         challenge = self._get_challenge(authorization_resource, challenge_types[domain_name])
                         if (not challenge):
-                            self._error('Unable to use dns-01 challenge for ', domain_name, '\n')
+                            self._error('Unable to use dns-01 challenge for ', domain_name, '\n', code=ErrorCode.DNS)
                             continue
                         response = challenge.validation(self.client_key)
                         zone_responses[domain_name] = ChallengeTuple(identifier, response)
@@ -1901,11 +2148,11 @@ class AcmeManager(object):
                         challenge_dns_responses[zone_name] = zone_responses
                 else:
                     try:
-                        with self._open_file(self._file_path('challenge', zone_name), 'w', 0o644) as challenge_file:
+                        with self._open_file(self._file_path('challenge', zone_name), mode='w', chmod=0o644) as challenge_file:
                             json.dump({domain_name: response.response for domain_name, response in zone_responses.items()}, challenge_file)
                         challenge_dns_responses[zone_name] = zone_responses
                     except Exception as error:
-                        self._error('Unable to create acme-challenge file for zone ', zone_name, '\n', self._indent(error), '\n')
+                        self._error('Unable to create acme-challenge file for zone ', zone_name, '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
                     if (zone_name in challenge_dns_responses):
                         self._reload_zone(zone_name)
                 self._add_hook('dns_zone_update', zone=zone_name)
@@ -1936,7 +2183,7 @@ class AcmeManager(object):
                     heapq.heappush(waiting, DNSTuple(datetime.datetime.now() + datetime.timedelta(seconds=self._setting_int('dns_lookup_delay')),
                                                      name_server, domain_name, identifier, response, attempt_count + 1))
                 else:
-                    self._warn('Maximum attempts reached waiting for DNS challenge ', domain_name, ' at ', name_server, '\n')
+                    self._warn('Maximum attempts reached waiting for DNS challenge ', domain_name, ' at ', name_server, '\n', code=WarningCode.DNS)
         if (challenge_dns_responses):
             time.sleep(2)
 
@@ -1948,7 +2195,7 @@ class AcmeManager(object):
             try:
                 self.acme_client.answer_challenge(challenge, challenge.response(self.client_key))
             except Exception as error:
-                self._error('Error answering challenge for ', domain_name, ':\n', error, '\n')
+                self._error('Error answering challenge for ', domain_name, ':\n', error, '\n', code=ErrorCode.ACME)
 
         # poll for authorizations
         waiting = [AuthorizationTuple(datetime.datetime.now(), domain_name, authorization_resource)
@@ -1967,18 +2214,20 @@ class AcmeManager(object):
             try:
                 authorization_resource, response = self.acme_client.poll(authorization_resource)
                 if (200 != response.status_code):
-                    self._warn(response, ' while waiting for domain challenge for ', domain_name, '\n')
+                    self._warn(response, ' while waiting for domain challenge for ', domain_name, '\n', code=WarningCode.AUTH)
                     heapq.heappush(waiting, AuthorizationTuple(
                         self.acme_client.retry_after(response, default=self._setting_int('authorization_delay')),
                         domain_name, authorization_resource))
                     continue
             except Exception as error:
-                self._error('Error polling for authorization for ', domain_name, ':\n', error, '\n')
+                self._error('Error polling for authorization for ', domain_name, ':\n', error, '\n', code=ErrorCode.ACME)
                 continue
 
             authorization_resources[domain_name] = authorization_resource
             attempts[authorization_resource] += 1
             if (messages.STATUS_VALID == authorization_resource.body.status):
+                if (domain_name in self._failed_auth):
+                    self._failed_auth.remove(domain_name)
                 self._debug('Authorization received\n')
                 continue
             elif (messages.STATUS_INVALID == authorization_resource.body.status):
@@ -1995,7 +2244,7 @@ class AcmeManager(object):
                         self.acme_client.retry_after(response, default=self._setting_int('authorization_delay')),
                         domain_name, authorization_resource))
             else:
-                self._fatal('Unexpected status "', authorization_resource.body.status, '"\n')
+                self._fatal('Unexpected status "', authorization_resource.body.status, '"\n', code=ErrorCode.ACME)
 
         # clear challenge responses
         for zone_name in challenge_dns_responses:
@@ -2017,9 +2266,14 @@ class AcmeManager(object):
         self._call_hooks()
 
         for domain_name in failed:
-            self._error('Authorization failed for ', domain_name, '\n')
+            self._error('Authorization failed for ', domain_name, '\n', code=ErrorCode.AUTH)
+            self._failed_auth.add(domain_name)
         for domain_name in exhausted:
-            self._warn('Authorization timed out for ', domain_name, '\n')
+            self._warn('Authorization timed out for ', domain_name, '\n', code=WarningCode.AUTH)
+            self._failed_auth.add(domain_name)
+
+        if ((ErrorCode.AUTH == self.error_code) and (not self._failed_auth)):  # clear auth error if nothing failed
+            self.error_code = ErrorCode.NONE
 
         order.update(authorizations=[authorization_resource for authorization_resource in authorization_resources.values()])
 
@@ -2030,7 +2284,7 @@ class AcmeManager(object):
                 try:
                     authorizations.append(self.acme_client.client.request_domain_challenges(domain_name))
                 except Exception as error:
-                    self._error('Unable to request authorization for ', domain_name, '\n', self._indent(error), '\n')
+                    self._error('Unable to request authorization for ', domain_name, '\n', self._indent(error), '\n', code=ErrorCode.ACME)
                     continue
             if (authorizations):
                 return messages.OrderResource(authorizations=authorizations)
@@ -2045,15 +2299,15 @@ class AcmeManager(object):
                 try:
                     response = self.acme_client.client._post(self.acme_client.client.directory['newOrder'], order)
                 except Exception as error:
-                    self._error('Unable to create authorization order\n', self._indent(error), '\n')
+                    self._error('Unable to create authorization order\n', self._indent(error), '\n', code=ErrorCode.ACME)
                     return None
                 body = messages.Order.from_json(response.json())
                 authorizations = []
                 for url in body.authorizations:
                     try:
-                        authorizations.append(self.acme_client.client._authzr_from_response(self.acme_client.client.net.get(url), uri=url))
+                        authorizations.append(self.acme_client.client._authzr_from_response(self.acme_client.client._post_as_get(url), uri=url))
                     except Exception as error:
-                        self._error('Unable to request authorization for ', domain_name, '\n', self._indent(error), '\n')
+                        self._error('Unable to request authorization for ', domain_name, '\n', self._indent(error), '\n', code=ErrorCode.ACME)
                         continue
                 if (authorizations):
                     return messages.OrderResource(body=body, uri=response.headers.get('Location'), authorizations=authorizations)
@@ -2113,7 +2367,7 @@ class AcmeManager(object):
         return key_options
 
     def _poll_order(self, order):
-        response = self.acme_client.net.get(order.uri)
+        response = self.acme_client._post_as_get(order.uri)
         body = messages.Order.from_json(response.json())
         if body.error is not None:
             raise body.error
@@ -2132,7 +2386,7 @@ class AcmeManager(object):
 
             key_options = self._get_key_options(private_keys[private_key_name])
             if (not key_options):
-                self._error('No configured private key types for ', private_key_name, '\n')
+                self._error('No configured private key types for ', private_key_name, '\n', code=ErrorCode.CONFIG)
                 continue
 
             hpkp_days = self._option_int(private_keys[private_key_name], 'hpkp_days')
@@ -2155,7 +2409,7 @@ class AcmeManager(object):
                         oldest_key_timestamp = min(oldest_key_timestamp, backup_key_data.timestamp)
                     backup_keys[key_type] = backup_key_data
             except PrivateKeyError as error:
-                self._error('Unable to load backup private key ', error, '\n')
+                self._error('Unable to load backup private key ', error, '\n', code=ErrorCode.KEY)
                 continue
 
             if (0 < youngest_key_timestamp):
@@ -2184,12 +2438,13 @@ class AcmeManager(object):
                 else:
                     self._warn('A backup private key for ', private_key_name, ' is younger than HPKP duration',
                                _duration(' by ', hpkp_days - youngest_key_age.days), ', rollover skipped\n',
-                               'Use "--force" to force key rollover, note that this can brick a web site if HPKP is deployed\n')
+                               'Use "--force" to force key rollover, note that this can brick a web site if HPKP is deployed\n',
+                               code=WarningCode.KEY)
 
             try:
                 keys = {key_type: self.load_private_key('private_key', private_key_name, key_type, key_cipher_data) for key_type in key_options}
             except PrivateKeyError as error:
-                self._error('Unable to load private key ', error, '\n')
+                self._error('Unable to load private key ', error, '\n', code=ErrorCode.KEY)
                 continue
 
             for key_type, options in key_options.items():
@@ -2201,14 +2456,15 @@ class AcmeManager(object):
                         else:
                             self._warn('A backup private key for ', private_key_name, ' is younger than HPKP duration',
                                        _duration(' by ', hpkp_days - youngest_key_age.days), ', rollover skipped\n',
-                                       'Use "--force" to force key rollover, note that this can brick a web site if HPKP is deployed\n')
+                                       'Use "--force" to force key rollover, note that this can brick a web site if HPKP is deployed\n',
+                                       code=WarningCode.KEY)
 
             previous_keys = {}
             try:
                 for key_type in key_options:
                     previous_keys[key_type] = self.load_private_key('previous_key', private_key_name, key_type, key_cipher_data)
             except PrivateKeyError as error:
-                self._error('Unable to load previous private key ', error, '\n')
+                self._error('Unable to load previous private key ', error, '\n', code=ErrorCode.KEY)
                 continue
 
             if manage_keys:
@@ -2230,9 +2486,9 @@ class AcmeManager(object):
                     and self._need_to_rollover(oldest_key_age, expiration_days)
                     and self._safe_to_rollover(youngest_key_age, hpkp_days)):
                 if manage_keys:
-                    self._status('Private key for ', private_key_name, ' has expired. Use "--rollover" to replace.\n')
+                    self._warn('Private key for ', private_key_name, ' has expired. Use "--rollover" to replace.\n', code=WarningCode.KEY)
                 else:
-                    self._status('Private key for ', private_key_name, ' has expired. Replace with backup key or new key.\n')
+                    self._warn('Private key for ', private_key_name, ' has expired. Replace with backup key or new key.\n', code=WarningCode.KEY)
 
             for key_type, options in key_options.items():
                 if (not keys[key_type].key):
@@ -2243,7 +2499,7 @@ class AcmeManager(object):
                         if (private_key):
                             generated_private_key = True
                     else:
-                        self._error(key_type.upper(), ' private key for ', private_key_name, ' has not been provided.\n')
+                        self._error(key_type.upper(), ' private key for ', private_key_name, ' has not been provided.\n', code=ErrorCode.KEY)
 
             for key_type, key_data in keys.items():
                 if (not key_data.key):
@@ -2266,7 +2522,7 @@ class AcmeManager(object):
                 issue_certificate_key_types = []
                 for key_type in certificate_key_types:
                     if ((key_type not in keys) or (not keys[key_type].key)):
-                        self._error('No ', key_type.upper(), ' private key available for certificate ', certificate_name, '\n')
+                        self._error('No ', key_type.upper(), ' private key available for certificate ', certificate_name, '\n', code=ErrorCode.KEY)
                         continue
 
                     if ((not rolled_private_key) and (not self.args.renew)):
@@ -2345,13 +2601,13 @@ class AcmeManager(object):
                         if (order.uri):
                             order, response = self._poll_order(order)
                             if (messages.STATUS_INVALID == order.body.status):
-                                self._error('Unable to issue ', key_type.upper(), ' certificate ', certificate_name, '\n')
+                                self._error('Unable to issue ', key_type.upper(), ' certificate ', certificate_name, '\n', code=ErrorCode.ACME)
                                 continue
                         order = self.acme_client.finalize_order(order,
                                                                 datetime.datetime.now() + datetime.timedelta(seconds=self._setting_int('cert_poll_time')))
                         certificate, chain = self.decode_full_chain(order.fullchain_pem)
                     except Exception as error:
-                        self._error(key_type.upper(), ' certificate issuance failed\n', self._indent(error), '\n')
+                        self._error(key_type.upper(), ' certificate issuance failed\n', self._indent(error), '\n', code=ErrorCode.ACME)
                         if (rolled_private_key):
                             issued_certificates = []    # do not partially install new certificates if private key changed
                             break
@@ -2371,7 +2627,7 @@ class AcmeManager(object):
             private_key_name = private_key_data.name
 
             if ((not private_key_data.issued_certificates) and (private_key_data.generated_key or private_key_data.rolled_key)):
-                self._warn('No certificates issued for private key ', private_key_name, ' skipping key updates\n')
+                self._warn('No certificates issued for private key ', private_key_name, ' skipping key updates\n', code=WarningCode.CONFIG)
                 self._clear_hooks()
                 continue
 
@@ -2412,7 +2668,7 @@ class AcmeManager(object):
                                        previous_key_file=self._file_path('previous_key', private_key_name, key_type),
                                        passphrase=key_cipher_data.passphrase if (key_cipher_data) else None)
             except PrivateKeyError as error:
-                self._error('Unable to encrypt private key ', error, '\n')
+                self._error('Unable to encrypt private key ', error, '\n', code=ErrorCode.KEY)
                 self._clear_hooks()
                 continue
 
@@ -2459,7 +2715,7 @@ class AcmeManager(object):
                     if (dhparam_pem):
                         generated_params = True
                     else:
-                        self._error('Diffie-Hellman parameters generation failed for ', dhparam_size, ' bits\n')
+                        self._error('Diffie-Hellman parameters generation failed for ', dhparam_size, ' bits\n', code=ErrorCode.PARAM)
                         dhparam_pem = hold_dhparam_pem
 
                 ecparam_curves = self._option_list(key_certificates[certificate_name], 'ecparam_curve')
@@ -2472,7 +2728,7 @@ class AcmeManager(object):
                     if (ecparam_pem):
                         generated_params = True
                     else:
-                        self._error('Elliptical curve parameters generation failed for curve ', ':'.join(ecparam_curves), '\n')
+                        self._error('Elliptical curve parameters generation failed for curve ', ':'.join(ecparam_curves), '\n', code=ErrorCode.PARAM)
                         ecparam_pem = hold_ecparam_pem
 
                 if ((dhparam_pem or ecparam_pem) and self._directory('param')
@@ -2516,7 +2772,7 @@ class AcmeManager(object):
                         self._add_hook('full_key_installed', key_name=private_key_name, key_type=key_type, certificate_name=certificate_name,
                                        full_key_file=self._file_path('full_key', certificate_name, key_type))
                 except PrivateKeyError as error:
-                    self._error('Unable to encrypt private key ', error, '\n')
+                    self._error('Unable to encrypt private key ', error, '\n', code=ErrorCode.KEY)
                     continue
 
             # save any generated params for certs not issued
@@ -2557,7 +2813,7 @@ class AcmeManager(object):
                                     self._add_hook('full_key_installed', key_name=private_key_name, key_type=key_type, certificate_name=certificate_name,
                                                    full_key_file=self._file_path('full_key', certificate_name, key_type))
                             except PrivateKeyError as error:
-                                self._error('Unable to encrypt private key ', error, '\n')
+                                self._error('Unable to encrypt private key ', error, '\n', code=ErrorCode.KEY)
                                 continue
 
             try:
@@ -2578,7 +2834,7 @@ class AcmeManager(object):
                         self.update_services(self._option_list(key_certificates[certificate_name], 'services'))
 
             except Exception as error:
-                self._error('Unable to install keys and certificates for ', private_key_name, '\n', self._indent(error), '\n')
+                self._error('Unable to install keys and certificates for ', private_key_name, '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
                 self._clear_hooks()
 
         for zone_name in updated_key_zones:
@@ -2593,7 +2849,7 @@ class AcmeManager(object):
             if (private_key_name in private_keys):
                 key_options = self._get_key_options(private_keys[private_key_name])
                 if (not key_options):
-                    self._error('No configured private key types for ', private_key_name, '\n')
+                    self._error('No configured private key types for ', private_key_name, '\n', code=ErrorCode.CONFIG)
                     continue
 
                 key_certificates = private_keys[private_key_name].get('certificates', {})
@@ -2610,9 +2866,10 @@ class AcmeManager(object):
                                 revoked_certificates.append((certificate_name, key_type))
                                 self._status(key_type.upper(), ' certificate ', certificate_name, ' revoked\n')
                             except Exception as error:
-                                self._error('Unable to revoke ', key_type.upper(), ' certificate ', certificate_name, '\n', self._indent(error), '\n')
+                                self._error('Unable to revoke ', key_type.upper(), ' certificate ', certificate_name, '\n', self._indent(error), '\n',
+                                            code=ErrorCode.ACME)
                         else:
-                            self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n')
+                            self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n', code=ErrorCode.CONFIG)
 
                 archive_date = datetime.datetime.now()
                 processed_tlsa = set()
@@ -2640,7 +2897,7 @@ class AcmeManager(object):
                                     updated_tlsa_zones[zone_name] = []
                                 updated_tlsa_zones[zone_name] += self._tlsa_data(self._get_list(tlsa_records, zone_name))
                             else:
-                                self._error('No update key configured for zone ', zone_name, ', unable to remove TLSA records\n')
+                                self._error('No update key configured for zone ', zone_name, ', unable to remove TLSA records\n', code=ErrorCode.CONFIG)
 
                 if (len(revoked_certificates) == certificate_count):
                     for key_type in key_options:
@@ -2648,7 +2905,7 @@ class AcmeManager(object):
                         self.archive_private_key('previous_key', private_key_name, key_type, archive_name=private_key_name, archive_date=archive_date)
                         self.archive_hpkp_headers(private_key_name, archive_name=private_key_name, archive_date=archive_date)
             else:
-                self._error(private_key_name, ' is not a configured private key\n')
+                self._error(private_key_name, ' is not a configured private key\n', code=ErrorCode.CONFIG)
 
         for zone_name in updated_key_zones:
             self._reload_zone(zone_name, critical=False)
@@ -2667,7 +2924,7 @@ class AcmeManager(object):
 
             key_options = self._get_key_options(private_keys[private_key_name])
             if (not key_options):
-                self._error('No configured private key types for ', private_key_name, '\n')
+                self._error('No configured private key types for ', private_key_name, '\n', code=ErrorCode.CONFIG)
                 continue
 
             keys = []
@@ -2680,7 +2937,7 @@ class AcmeManager(object):
                     if (previous_key):
                         keys.append((key_type, previous_key))
             except PrivateKeyError as error:
-                self._error('Unable to load private key ', error, '\n')
+                self._error('Unable to load private key ', error, '\n', code=ErrorCode.KEY)
                 continue
 
             key_certificates = private_keys[private_key_name].get('certificates', {})
@@ -2693,7 +2950,7 @@ class AcmeManager(object):
                     for key_type in certificate_key_types:
                         certificate = self.load_certificate('certificate', certificate_name, key_type)
                         if (not certificate):
-                            self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n')
+                            self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n', code=ErrorCode.CONFIG)
                             continue
                         certificates.append(certificate)
                         chain += self.load_chain(certificate_name, key_type)
@@ -2706,7 +2963,7 @@ class AcmeManager(object):
                                                                      chain=(chain + root_certificates),
                                                                      private_keys=[key for key_type, key in keys if (key_type in certificate_key_types)])
                         else:
-                            self._error('No update key configured for zone ', zone_name, ', unable to set TLSA records\n')
+                            self._error('No update key configured for zone ', zone_name, ', unable to set TLSA records\n', code=ErrorCode.CONFIG)
 
         for zone_name in tlsa_zones:
             self._set_tlsa_records(zone_name, self._zone_key(zone_name), tlsa_zones[zone_name])
@@ -2724,7 +2981,7 @@ class AcmeManager(object):
 
             key_options = self._get_key_options(private_keys[private_key_name])
             if (not key_options):
-                self._error('No configured private key types for ', private_key_name, '\n')
+                self._error('No configured private key types for ', private_key_name, '\n', code=ErrorCode.CONFIG)
                 continue
 
             transactions = []
@@ -2742,23 +2999,23 @@ class AcmeManager(object):
                                 if (sct_data):
                                     self._detail(ct_log_name, ' has SCT for ', key_type.upper(), ' certificate ', certificate_name, ' at ',
                                                  self._sct_datetime(sct_data.timestamp).isoformat(), '\n')
-                                existing_sct_data = self.load_sct(certificate_name, key_type, ct_log_name)
+                                existing_sct_data = self.load_sct(certificate_name, key_type, ct_log_name, certificate)
                                 if (sct_data and ((not existing_sct_data) or (sct_data != existing_sct_data))):
                                     self._info('Saving Signed Certificate Timestamp for ', key_type.upper(), ' certificate ', certificate_name,
                                                ' from ', ct_log_name, '\n')
-                                    transactions.append(self.save_sct(certificate_name, key_type, ct_log_name, sct_data))
+                                    transactions.append(self.save_sct(certificate_name, key_type, ct_log_name, sct_data, certificate))
                                     self._add_hook('sct_installed', key_name=private_key_name, key_type=key_type,
                                                    certificate_name=certificate_name, ct_log_name=ct_log_name,
                                                    sct_file=self._file_path('sct', certificate_name, key_type, ct_log_name=ct_log_name))
                                     self.update_services(self._option_list(key_certificates[certificate_name], 'services'))
                         else:
-                            self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n')
+                            self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n', code=ErrorCode.CONFIG)
 
             try:
                 self._commit_file_transactions(transactions, archive_name=None)
                 self._call_hooks()
             except Exception as error:
-                self._error('Unable to save Signed Certificate Timestamps for ', private_key_name, '\n', self._indent(error), '\n')
+                self._error('Unable to save Signed Certificate Timestamps for ', private_key_name, '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
                 self._clear_hooks()
 
     def update_ocsp_responses(self, private_key_names):
@@ -2775,7 +3032,7 @@ class AcmeManager(object):
 
             key_options = self._get_key_options(private_keys[private_key_name])
             if (not key_options):
-                self._error('No configured private key types for ', private_key_name, '\n')
+                self._error('No configured private key types for ', private_key_name, '\n', code=ErrorCode.CONFIG)
                 continue
 
             transactions = []
@@ -2785,7 +3042,7 @@ class AcmeManager(object):
                 for key_type in certificate_key_types:
                     certificate = self.load_certificate('certificate', certificate_name, key_type)
                     if (not certificate):
-                        self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n')
+                        self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n', code=ErrorCode.CONFIG)
                         continue
                     asn1crypto_certificate = asn1_x509.Certificate.load(self._certificate_bytes(certificate))
 
@@ -2851,26 +3108,30 @@ class AcmeManager(object):
                                     else:
                                         self._warn(key_type.upper(), ' certificate ', certificate_name, ' has OCSP status "', ocsp_status.upper(), '"',
                                                    ' from ', ocsp_url,
-                                                   ' updated at ', this_update.strftime('%Y-%m-%d %H:%M:%S UTC'), '\n')
+                                                   ' updated at ', this_update.strftime('%Y-%m-%d %H:%M:%S UTC'), '\n',
+                                                   code=WarningCode.OCSP)
                                 else:
                                     self._warn(key_type.upper(), ' certificate ', certificate_name,
                                                ' OCSP request received "', ocsp_response['response_status'].native, '"',
-                                               ' from ', ocsp_url, '\n')
+                                               ' from ', ocsp_url, '\n',
+                                               code=WarningCode.OCSP)
                             elif (ocsp_response is False):
                                 self._debug('OCSP response for ', key_type.upper(), ' certificate ', certificate_name,
                                             ' from ', ocsp_url,
                                             ' has not been updated\n')
                                 break
                         else:
-                            self._warn('Unable to retrieve OCSP response for ', key_type.upper(), ' certificate ', certificate_name, '\n')
+                            self._warn('Unable to retrieve OCSP response for ', key_type.upper(), ' certificate ', certificate_name, '\n',
+                                       code=WarningCode.OCSP)
                     else:
-                        self._warn('No OCSP responder URL for ', key_type.upper(), ' certificate ', certificate_name, ' and no default set\n')
+                        self._warn('No OCSP responder URL for ', key_type.upper(), ' certificate ', certificate_name, ' and no default set\n',
+                                   code=WarningCode.CONFIG)
 
             try:
                 self._commit_file_transactions(transactions, archive_name=None)
                 self._call_hooks()
             except Exception as error:
-                self._error('Unable to save OCSP responses for ', private_key_name, '\n', self._indent(error), '\n')
+                self._error('Unable to save OCSP responses for ', private_key_name, '\n', self._indent(error), '\n', code=ErrorCode.PERMISSION)
                 self._clear_hooks()
 
     def _send_starttls(self, type, sock, host_name):
@@ -3014,16 +3275,16 @@ class AcmeManager(object):
                 for chain_certificate in certificates:
                     matches.append(self._certificate_public_key_bytes(chain_certificate))
             else:
-                self._error('ERROR: unknown selector in TLSA record ', tlsa_record, '\n')
+                self._error('ERROR: unknown selector in TLSA record ', tlsa_record, '\n', code=ErrorCode.CONFIG)
         elif ('1' == usage) or ('3' == usage):  # match record to certifitcate
             if ('0' == selector):
                 matches.append(self._certificate_bytes(certificate))
             elif ('1' == selector):
                 matches.append(self._certificate_public_key_bytes(certificate))
             else:
-                self._error('ERROR: unknown selector in TLSA record ', tlsa_record, '\n')
+                self._error('ERROR: unknown selector in TLSA record ', tlsa_record, '\n', code=ErrorCode.CONFIG)
         else:
-            self._error('ERROR: unknown usage in TLSA record ', tlsa_record, '\n')
+            self._error('ERROR: unknown usage in TLSA record ', tlsa_record, '\n', code=ErrorCode.CONFIG)
 
         for match in matches:
             if ('0' == matching_type):  # entire certificate/key
@@ -3036,7 +3297,7 @@ class AcmeManager(object):
                 if (hashlib.sha512(match).hexdigest() == data):
                     return True
             else:
-                self._error('ERROR: unknown matching type in TLSA record ', tlsa_record, '\n')
+                self._error('ERROR: unknown matching type in TLSA record ', tlsa_record, '\n', code=ErrorCode.CONFIG)
         return False
 
     def _verify_certificate_installation(self, certificate_name, certificate, chain, root_certificate,
@@ -3049,7 +3310,7 @@ class AcmeManager(object):
                 host_name = 'wildcard-test-{random}.{host_name}'.format(random=self._random_string(10), host_name=host_name[2:])
             addr_info = socket.getaddrinfo(host_name, port_number, proto=socket.IPPROTO_TCP)
         except Exception as error:
-            self._error('ERROR: Unable to get address for ', host_name, '\n', self._indent(error), '\n')
+            self._error('ERROR: Unable to get address for ', host_name, '\n', self._indent(error), '\n', code=ErrorCode.DNS)
             return
 
         tlsa_records = self._lookup_tlsa_records(host_name, port_number, 'tcp')
@@ -3079,10 +3340,10 @@ class AcmeManager(object):
                     self._info(key_type.upper(), ' certificate ', certificate_name, ' present on ', host_desc, '\n', color='green')
                 else:
                     self._error('ERROR: ', key_type.upper(), ' certificate "',
-                                installed_certificate.get_subject().commonName, '" mismatch on ', host_desc, '\n')
+                                installed_certificate.get_subject().commonName, '" mismatch on ', host_desc, '\n', code=ErrorCode.VERIFY)
                 if (len(chain) != len(installed_chain)):
                     self._error('ERROR: ', key_type.upper(), ' certificate chain length mismatch on ', host_desc, ', got ', len(installed_chain),
-                                ' intermediate(s), expected ', len(chain), '\n')
+                                ' intermediate(s), expected ', len(chain), '\n', code=ErrorCode.VERIFY)
                 else:
                     for intermediate, installed_intermediate in zip(chain, installed_chain):
                         if (self._certificates_match(intermediate, installed_intermediate)):
@@ -3090,16 +3351,16 @@ class AcmeManager(object):
                                        '" present on ', host_desc, '\n', color='green')
                         else:
                             self._error('ERROR: Intermediate ', key_type.upper(), ' certificate "', installed_intermediate.get_subject().commonName,
-                                        '" mismatch on ', host_desc, '\n')
+                                        '" mismatch on ', host_desc, '\n', code=ErrorCode.VERIFY)
                 if (ocsp_staple):
                     ocsp_status = self.ocsp_response_status(ocsp_staple)
                     if ('good' == ocsp_status.lower()):
                         self._info('OCSP staple status is GOOD on ', host_desc, '\n', color='green')
                     else:
-                        self._error('ERROR: OCSP staple has status: ', ocsp_status.upper(), ' on ', host_desc, '\n')
+                        self._error('ERROR: OCSP staple has status: ', ocsp_status.upper(), ' on ', host_desc, '\n', code=ErrorCode.VERIFY)
                 else:
                     if (self.has_oscp_must_staple(certificate)):
-                        self._error('ERROR: Certificate has OCSP Must-Staple but no OSCP staple found on ', host_desc, '\n')
+                        self._error('ERROR: Certificate has OCSP Must-Staple but no OSCP staple found on ', host_desc, '\n', code=ErrorCode.VERIFY)
 
                 if tlsa_records:
                     tlsa_match = False
@@ -3113,10 +3374,10 @@ class AcmeManager(object):
                             self._detail('    ', tlsa_record, '\n')
                     if not tlsa_match:
                         self._error('ERROR: No TLSA records match ', key_type.upper(), ' certificate "',
-                                    installed_certificate.get_subject().commonName, '" on ', host_desc, '\n')
+                                    installed_certificate.get_subject().commonName, '" on ', host_desc, '\n', code=ErrorCode.VERIFY)
 
-                if (protocol_info):
-                    if ('public_key_pins' in protocol_info):
+                if (protocol):
+                    if ('public_key_pins' in (protocol_info or {})):
                         for pin_key_type, pin_key_name, pin_key_purpose, pin_key in keys:
                             digests = {'sha256': self._public_key_digest(pin_key, 'sha256'), 'sha512': self._public_key_digest(pin_key, 'sha512')}
                             for pin in protocol_info['public_key_pins']:
@@ -3127,12 +3388,12 @@ class AcmeManager(object):
                                     break
                             else:
                                 self._error('ERROR: Public key pin missing for ', pin_key_type.upper(), ' ', pin_key_purpose, ' key ', pin_key_name,
-                                            ' on ', host_desc, '\n')
+                                            ' on ', host_desc, '\n', code=ErrorCode.VERIFY)
                     else:
-                        self._error('ERROR: Public key pins not found on ', host_desc, '\n')
+                        self._error('ERROR: Public key pins not found on ', host_desc, '\n', code=ErrorCode.VERIFY)
 
             except Exception as error:
-                self._error('ERROR: Unable to connect to ', host_desc, ' via ', key_type.upper(), '\n', self._indent(error), '\n')
+                self._error('ERROR: Unable to connect to ', host_desc, ' via ', key_type.upper(), '\n', self._indent(error), '\n', code=ErrorCode.VERIFY)
 
     def verify_certificate_installation(self, private_key_names):
         key_type_ciphers = {}
@@ -3151,7 +3412,7 @@ class AcmeManager(object):
 
             key_options = self._get_key_options(private_keys[private_key_name])
             if (not key_options):
-                self._error('No configured private key types for ', private_key_name, '\n')
+                self._error('No configured private key types for ', private_key_name, '\n', code=ErrorCode.CONFIG)
                 continue
 
             keys = []
@@ -3164,7 +3425,7 @@ class AcmeManager(object):
                     if (previous_key):
                         keys.append((key_type, private_key_name, 'previous', previous_key))
             except PrivateKeyError as error:
-                self._error('Unable to load private key ', error, '\n')
+                self._error('Unable to load private key ', error, '\n', code=ErrorCode.KEY)
                 continue
 
             key_certificates = private_keys[private_key_name].get('certificates', {})
@@ -3180,10 +3441,12 @@ class AcmeManager(object):
                         certificate = self.load_certificate('certificate', certificate_name, key_type)
                         chain = self.load_chain(certificate_name, key_type)
                         if (not certificate):
-                            self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n')
+                            self._error(key_type.upper(), ' certificate ', certificate_name, ' not found\n', code=ErrorCode.CONFIG)
                             continue
 
                         for verify in verify_list:
+                            if (not verify.get('port')):
+                                continue
                             if ('key_types' in verify):
                                 if (key_type not in self._get_list(verify, 'key_types')):
                                     continue
@@ -3208,6 +3471,9 @@ class AcmeManager(object):
     def run(self):
         self._validate_config()
         self._log('\n', self.script_name, ' executed at ', str(datetime.datetime.now()), '\n')
+        if (self.args.show_config):
+            self.show_config()
+            return
         pid_file_path = os.path.join(self._directory('pid'), self.script_name + '.pid')
         if (self.args.random_wait):
             delay_seconds = min(random.randrange(min(self._setting_int('min_run_delay'), self._setting_int('max_run_delay')),
@@ -3229,7 +3495,7 @@ class AcmeManager(object):
         else:
             if (self._process_running(pid_file_path)):
                 self._fatal('Client already running\n')
-        with self._open_file(pid_file_path, 'w') as pid_file:
+        with self._open_file(pid_file_path, mode='w') as pid_file:
             pid_file.write(str(os.getpid()))
         try:
             if (not (self.args.revoke or self.args.auth or self.args.certs or self.args.tlsa or self.args.sct or self.args.ocsp or self.args.verify
@@ -3265,8 +3531,6 @@ class AcmeManager(object):
                 self.verify_certificate_installation(self.args.private_key_names)
             if (self.args.export_client):
                 self.export_client_key()
-            if (self.args.show_config):
-                self.show_config()
             self.disconnect_client()
         finally:
             os.remove(pid_file_path)
@@ -3285,7 +3549,3 @@ def debug_hook(type, value, tb):
         print()
         # ...then start the debugger in post-mortem mode.
         pdb.pm()
-
-
-if __name__ == '__main__':      # called from the command line
-    sys.exit(AcmeManager.Run())

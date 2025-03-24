@@ -23,7 +23,7 @@ the tool can also maintain associated HPKP headers and TLSA (DANE) records.
 
 
 Master/Follower Mode
------------------
+--------------------
 
 This tool separates the authorization (domain validation) and certificate issuance processes allowing one machine to maintain authorizations (the master),
 while another machine issues certificates (the follower).
@@ -145,19 +145,14 @@ Wildcard certrificates may be issued when using the V2 API.
 Installation
 ============
 
-Requires Python 3.4+ and the acme and py3dns packages.
+Requires Python 3.7+ and the OpenSSL support.
 
-On Debian Jessie, these can be installed via::
-
-    sudo apt-get install build-essential libssl-dev libffi-dev python3-dev python3-pip
-    sudo pip3 install -r requirements.txt
-
-On Debian Stretch::
+On Debian Stretch and later::
 
     sudo apt-get install python3-pip libssl-dev libffi-dev
-    sudo pip3 install -r requirements.txt
+    sudo pip3 install acmebot
 
-Clone this repository or download the ``acmebot`` file and install it on your server.
+You may want to create a virtual environment and install acmebot there.
 Copy either the ``acmebot.example.json`` file or the ``acmebot.example.yaml`` file to ``acmebot.json`` (or ``acmebot.yaml``) and edit the configuration options.
 The configuration file can be placed in the current directory that the tool is run from,
 the /etc/acmebot directory,
@@ -564,6 +559,14 @@ All of these need only be present when the desired value is different from the d
 * ``file_group`` speficies the name of the group that will own certificate and private key files.
   The default value is ``"ssl-cert"``.
   Note that this tool must run as root, or another user that has rights to set the file ownership to this group.
+* ``log_user`` specifies the name of the user that will own log files.
+  The default value is ``"root"``.
+  Note that this tool must run as root, or another user that has rights to set the file ownership to this user.
+* ``log_group`` speficies the name of the group that will own log files.
+  The default value is ``"adm"``.
+  Note that this tool must run as root, or another user that has rights to set the file ownership to this group.
+* ``warning_exit_code`` specifies if warnings will produce a non-zero exit code.
+  The default value is ``false``.
 * ``hpkp_days`` specifies the number of days that HPKP pins should be cached for.
   The default value is ``60``.
   HPKP pin files can be turned off by setting this value to ``0`` or ``null``.
@@ -1758,7 +1761,7 @@ You may wish to run the tool without the input file first to verify the private 
 
 
 Master/Follower Setup
-==================
+=====================
 
 In some circumstances, it is useful to run the tool in a master/follower configuration.
 In this setup, the master performs domain authorizations
