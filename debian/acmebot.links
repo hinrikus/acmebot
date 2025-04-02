@@ -1,0 +1,2 @@
+/etc/ssl/certs/ISRG_Root_X1.pem /etc/acmebot/root_cert.rsa.pem
+/etc/ssl/certs/ISRG_Root_X1.pem /etc/acmebot/root_cert.ecdsa.pem

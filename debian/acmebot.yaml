@@ -1,0 +1,23 @@
+---
+
+directories:
+  pid: "/var/run"
+  log: "/var/log/acmebot"
+  resource: "/var/lib/acmebot"
+  private_key: "/etc/ssl/private"
+  backup_key: "/etc/ssl/private"
+  previous_key: null
+  full_key: "/etc/ssl/private"
+  certificate: "/etc/ssl/certs"
+  full_certificate: "/etc/ssl/certs"
+  chain: "/etc/ssl/certs"
+  param: "/etc/ssl/params"
+  challenge: "/etc/ssl/challenges"
+  http_challenge: null
+  hpkp: "/etc/ssl/hpkp"
+  ocsp: "/etc/ssl/ocsp/"
+  sct: "/etc/ssl/scts/{name}/{key_type}"
+  update_key: "/etc/ssl/update_keys"
+  archive: "/etc/ssl/archive"
+  temp: null
+

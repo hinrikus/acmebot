@@ -1,0 +1,12 @@
+#!/bin/sh
+#
+# acmebot cron daily
+
+set -e
+
+if [ -d /run/systemd/system ]; then
+    # Skip in favour of systemd timer.
+    exit 0
+fi
+
+/usr/bin/acmebot --randomwait
