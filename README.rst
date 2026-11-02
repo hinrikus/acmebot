@@ -135,17 +135,16 @@ This tool can automatically connect to configured servers and verify that the ge
 Additional checks are made for OSCP staples and optionally HPKP headers can be verified as well.
 
 
-ACME Protocol V1 and V2 Support
--------------------------------
+ACME Protocol V2 Support
+------------------------
 
-This tool supports services running both ACME V1 and ACME V2 APIs.
-Wildcard certrificates may be issued when using the V2 API.
+This tool supports services ACME V2 APIs.
 
 
 Installation
 ============
 
-Requires Python 3.7+ and the OpenSSL support.
+Requires Python 3.8+ and OpenSSL support.
 
 On Debian Stretch and later::
 
@@ -375,7 +374,7 @@ These files contain HTTP header directives setting HPKP for both the primary and
 
 Each file is suitable to be included in the server configuration for either Apache or Nginx respectively.
 
-Thess files will not be created if the ``hpkp`` directory is set to ``null``.
+These files will not be created if the ``hpkp`` directory is set to ``null``.
 
 
 Signed Certificate Timestamp (SCT) Files
@@ -386,12 +385,16 @@ These files contain SCT information in binary form suitable to be included in a 
 By default, SCTs will be retrieved from the Google Icarus and Google Pilot certificate transparency logs.
 The Google Test Tube certificate transparency log can be used with the Let's Encrypt staging environment for testing.
 
+These files will not be created if the ``sct`` directory is set to ``null``.
+
 
 OCSP Response Files
 -------------------
 One OCSP response file will be created for each key type,
 in /etc/ssl/ocsp, named ``<certificate-name>.<key_type>.ocsp``.
 These files contain OCSP responses in binary form suitable to be used as stapled OCSP responses.
+
+These files will not be created if the ``ocsp`` directory is set to ``null``.
 
 
 Archive Directory
@@ -710,13 +713,13 @@ All of these need only be present when the desired value is different from the d
 * ``http_challenge`` specifies the directory to store ACME http-01 challenge files.
   The default value is ``null``.
 * ``hpkp`` specifies the directory to store HPKP header files.
-  The default value is ``"/etc/ssl/hpkp"``.
+  The default value is ``null``.
   HPKP header files may be turned off by setting this to ``null``.
 * ``sct`` specifies the directory to store Signed Certificate Timestamp files.
   The default value is ``"/etc/ssl/scts/<certificate-name>/<key-type>"``.
   SCT files may be turned off by setting this to ``null``.
 * ``ocsp`` specifies the directory to store OCSP response files.
-  The default value is ``"/etc/ssl/ocsp"``.
+  The default value is ``null``.
   OCSP response files may be turned off by setting this to ``null``.
 * ``update_key`` specifies the directory to search for DNS update key files.
   The default value is ``"/etc/ssl/update_keys"``.
@@ -932,6 +935,7 @@ As such, it is an error to specify a certificate using the same name in both the
 The private key and certificate settings are identical to those specified in the ``certificates`` section,
 except settings relevant to the private key: ``key_size``, ``key_curve``, ``key_cipher``, ``key_passphrase``, ``key_provided``, ``expiration_days``, ``auto_rollover``, ``hpkp_days``, ``pin_subdomains``, and ``hpkp_report_uri`` are specified in the private key object rather than the certificate object.
 The ``key_types`` setting may be specified in the certificate, private key, or both.
+If specified in the private key, it acts as a default value for all certificates using that key.
 
 Example::
 

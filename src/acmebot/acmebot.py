@@ -50,7 +50,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 
 import josepy
 
-import pkg_resources
+from importlib.metadata import version as pkg_version
 
 import yaml
 
@@ -137,7 +137,7 @@ class AcmeManager:
         script_entry = sys.argv[0]
         self.script_dir = os.path.dirname(os.path.realpath(script_entry))
         self.script_name = os.path.basename(script_entry)
-        self.script_version = pkg_resources.get_distribution('acmebot').version
+        self.script_version = pkg_version('acmebot')
         self.error_code = ErrorCode.NONE
         self.warning_code = WarningCode.NONE
 
@@ -279,7 +279,7 @@ class AcmeManager:
                 'key_passphrase': None,
                 'key_provided': False,
                 'dhparam_size': 2048,
-                'ecparam_curve': ['secp521r1', 'secp384r1', 'secp256k1'],
+                'ecparam_curve': ['x448', 'x25519', 'secp521r1', 'secp384r1', 'secp256k1'],
                 'file_user': 'root',
                 'file_group': 'ssl-cert',
                 'log_user': 'root',
@@ -326,8 +326,8 @@ class AcmeManager:
                 'param': '/etc/ssl/params',
                 'challenge': '/etc/ssl/challenges',
                 'http_challenge': None,
-                'hpkp': '/etc/ssl/hpkp',
-                'ocsp': '/etc/ssl/ocsp/',
+                'hpkp': None,
+                'ocsp': None,
                 'sct': '/etc/ssl/scts/{name}/{key_type}',
                 'update_key': '/etc/ssl/update_keys',
                 'archive': '/etc/ssl/archive',
@@ -374,20 +374,6 @@ class AcmeManager:
             'ct_logs': {
                 'google_argon': [
                     {
-                        'log_id': '6D7Q2j71BjUy51covIlryQPTy9ERa+zraeF3fW0GvW4=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0JCPZFJOQqyEti5M8j13ALN3CAVHqkVM4yyOcKWCu2yye5yYeqDpEXYoALIgtM3TmHtNlifmt+4iatGwLpF3eA==',
-                        'url': 'https://ct.googleapis.com/logs/argon2023/',
-                        'start': '2023-01-01T00:00:00Z',
-                        'end': '2024-01-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': '7s3QZNXbGs7FXLedtM0TojKHRny87N7DUUhZRnEftZs=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHblsqctplMVc5ramA7vSuNxUQxcomQwGAVAdnWTAWUYr3MgDHQW0LagJ95lB7QT75Ve6JgT2EVLOFGU7L3YrwA==',
-                        'url': 'https://ct.googleapis.com/logs/us1/argon2024/',
-                        'start': '2024-01-01T00:00:00Z',
-                        'end': '2025-01-01T00:00:00Z',
-                    },
-                    {
                         'log_id': 'TnWjJ1yaEMM4W2zU3z9S6x3w4I4bjWnAsfpksWKaOd8=',
                         'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIIKh+WdoqOTblJji4WiH5AltIDUzODyvFKrXCBjw/Rab0/98J4LUh7dOJEY7+66+yCNSICuqRAX+VPnV8R1Fmg==',
                         'url': 'https://ct.googleapis.com/logs/us1/argon2025h1/',
@@ -401,22 +387,22 @@ class AcmeManager:
                         'start': '2025-07-01T00:00:00Z',
                         'end': '2026-01-01T00:00:00Z',
                     },
+                    {
+                        'log_id': 'DleUvPOuqT4zGyyZB7P3kN+bwj1xMiXdIaklrGHFTiE=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEB/we6GOO/xwxivy4HhkrYFAAPo6e2nc346Wo2o2U+GvoPWSPJz91s/xrEvA3Bk9kWHUUXVZS5morFEzsgdHqPg==',
+                        'url': 'https://ct.googleapis.com/logs/us1/argon2026h1/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2026-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '1219ENGn9XfCx+lf1wC/+YLJM1pl4dCzAXMXwMjFaXc=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKjpni/66DIYrSlGK6Rf+e6F2c/28ZUvDJ79N81+gyimAESAyeNZ++TRgjHWg9TVQnKHTSU0T1TtqDupFnSQTIg==',
+                        'url': 'https://ct.googleapis.com/logs/us1/argon2026h2/',
+                        'start': '2026-07-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
                 ],
                 'google_xenon': [
-                    {
-                        'log_id': 'rfe++nz/EMiLnT2cHj4YarRnKV3PsQwkyoWGNOvcgoo=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEchY+C+/vzj5g3ZXLY3q5qY1Kb2zcYYCmRV4vg6yU84WI0KV00HuO/8XuQqLwLZPjwtCymeLhQunSxgAnaXSuzg==',
-                        'url': 'https://ct.googleapis.com/logs/xenon2023/',
-                        'start': '2023-01-01T00:00:00Z',
-                        'end': '2024-01-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': 'dv+IPwq2+5VRwmHM9Ye6NLSkzbsp3GhCCp/mZ0xaOnQ=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuWDgNB415GUAk0+QCb1a7ETdjA/O7RE+KllGmjG2x5n33O89zY+GwjWlPtwpurvyVOKoDIMIUQbeIW02UI44TQ==',
-                        'url': 'https://ct.googleapis.com/logs/eu1/xenon2024/',
-                        'start': '2024-01-01T00:00:00Z',
-                        'end': '2025-01-01T00:00:00Z',
-                    },
                     {
                         'log_id': 'zxFW7tUufK/zh1vZaS6b6RpxZ0qwF+ysAdJbd87MOwg=',
                         'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEguLOkEA/gQ7f6uEgK14uMFRGgblY7a+9/zanngtfamuRpcGY4fLN6xcgcMoqEuZUeFDc/239HKe2Oh/5JqkbvQ==',
@@ -431,28 +417,42 @@ class AcmeManager:
                         'start': '2025-07-01T00:00:00Z',
                         'end': '2026-01-01T00:00:00Z',
                     },
+                    {
+                        'log_id': 'lpdkv1VYl633Q4doNwhCd+nwOtX2pPM2bkakPw/KqcY=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOh/Iu87VkEc0ysoBBCchHOIpPZK7kUXHWj6l1PIS5ujmQ7rze8I4r/wjigVW6wMKMMxjbNk8vvV7lLqU07+ITA==',
+                        'url': 'https://ct.googleapis.com/logs/eu1/xenon2026h1/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2026-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '2AlVO5RPev/IFhlvlE+Fq7D4/F6HVSYPFdEucrtFSxQ=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE5Xd4lXEos5XJpcx6TOgyA5Z7/C4duaTbQ6C9aXL5Rbqaw+mW1XDnDX7JlRUninIwZYZDU9wRRBhJmCVopzwFvw==',
+                        'url': 'https://ct.googleapis.com/logs/eu1/xenon2026h2/',
+                        'start': '2026-07-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
                 ],
                 'cloudflare_nimbus': [
-                    {
-                        'log_id': 'ejKMVNi3LbYg6jjgUh7phBZwMhOFTTvSK8E6V6NS61I=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEi/8tkhjLRp0SXrlZdTzNkTd6HqmcmXiDJz3fAdWLgOhjmv4mohvRhwXul9bgW0ODgRwC9UGAgH/vpGHPvIS1qA==',
-                        'url': 'https://ct.cloudflare.com/logs/nimbus2023/',
-                        'start': '2023-01-01T00:00:00Z',
-                        'end': '2024-01-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': '2ra/az+1tiKfm8K7XGvocJFxbLtRhIU0vaQ9MEjX+6s=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEd7Gbe4/mizX+OpIpLayKjVGKJfyTttegiyk3cR0zyswz6ii5H+Ksw6ld3Ze+9p6UJd02gdHrXSnDK0TxW8oVSA==',
-                        'url': 'https://ct.cloudflare.com/logs/nimbus2024/',
-                        'start': '2024-01-01T00:00:00Z',
-                        'end': '2025-01-01T00:00:00Z',
-                    },
                     {
                         'log_id': 'zPsPaoVxCWX+lZtTzumyfCLphVwNl422qX5UwP5MDbA=',
                         'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGoAaFRkZI3m0+qB5jo3VwdzCtZaSfpTgw34UfAoNLUaonRuxQWUMX5jEWhd5gVtKFEHsr6ldDqsSGXHNQ++7lw==',
                         'url': 'https://ct.cloudflare.com/logs/nimbus2025/',
                         'start': '2025-01-01T00:00:00Z',
                         'end': '2026-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'yzj3FYl8hKFEX1vB3fvJbvKaWc1HCmkFhbDLFMMUWOc=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2FxhT6xq0iCATopC9gStS9SxHHmOKTLeaVNZ661488Aq8tARXQV+6+jB0983v5FkRm4OJxPqu29GJ1iG70Ahow==',
+                        'url': 'https://ct.cloudflare.com/logs/nimbus2026/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'TGPcmOWcHauI9h6KPd6uj6tEozd7X5uUw/uhnPzBviY=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYjd/jE0EoAhNBbfcNhrTb7F0x10KZK8r2SDjx1GdjJ75hJrHx2OCQ+BXRjXi+czoREN1u0j9cWl8d6OoPMPogQ==',
+                        'url': 'https://ct.cloudflare.com/logs/nimbus2027/',
+                        'start': '2027-01-01T00:00:00Z',
+                        'end': '2028-01-01T00:00:00Z',
                     },
                 ],
                 'digicert_log_server': {
@@ -467,20 +467,6 @@ class AcmeManager:
                 },
                 'digicert_yeti': [
                     {
-                        'log_id': 'Nc8ZG7+xbFe/D61MbULLu7YnICZR6j/hKu+oA8M71kw=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfQ0DsdWYitzwFTvG3F4Nbj8Nv5XIVYzQpkyWsU4nuSYlmcwrAp6m092fsdXEw6w1BAeHlzaqrSgNfyvZaJ9y0Q==',
-                        'url': 'https://yeti2023.ct.digicert.com/log/',
-                        'start': '2023-01-01T00:00:00Z',
-                        'end': '2024-01-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': 'SLDja9qmRzQP5WoC+p0w6xxSActW3SyB2bu/qznYhHM=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV7jBbzCkfy7k8NDZYGITleN6405Tw7O4c4XBGA0jDliE0njvm7MeLBrewY+BGxlEWLcAd2AgGnLYgt6unrHGSw==',
-                        'url': 'https://yeti2024.ct.digicert.com/log/',
-                        'start': '2024-01-01T00:00:00Z',
-                        'end': '2025-01-01T00:00:00Z',
-                    },
-                    {
                         'log_id': 'fVkeEuF4KnscYWd8Xv340IdcFKBOlZ65Ay/ZDowuebg=',
                         'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE35UAXhDBAfc34xB00f+yypDtMplfDDn+odETEazRs3OTIMITPEy1elKGhj3jlSR82JGYSDvw8N8h8bCBWlklQw==',
                         'url': 'https://yeti2025.ct.digicert.com/log/',
@@ -490,20 +476,6 @@ class AcmeManager:
                 ],
                 'digicert_nessie': [
                     {
-                        'log_id': 's3N3B+GEUPhjhtYFqdwRCUp5LbFnDAuH3PADDnk2pZo=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEXu8iQwSCRSf2CbITGpUpBtFVt8+I0IU0d1C36Lfe1+fbwdaI0Z5FktfM2fBoI1bXBd18k2ggKGYGgdZBgLKTg==',
-                        'url': 'https://nessie2023.ct.digicert.com/log/',
-                        'start': '2023-01-01T00:00:00Z',
-                        'end': '2024-01-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': 'c9meiRtMlnigIH1HneayxhzQUV5xGSqMa4AQesF3crU=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELfyieza/VpHp/j/oPfzDp+BhUuos6QWjnycXgQVwa4FhRIr4OxCAQu0DLwBQIfxBVISjVNUusnoWSyofK2YEKw==',
-                        'url': 'https://nessie2024.ct.digicert.com/log/',
-                        'start': '2024-01-01T00:00:00Z',
-                        'end': '2025-01-01T00:00:00Z',
-                    },
-                    {
                         'log_id': '5tIxY0B3jMEQQQbXcbnOwdJA9paEhvu6hzId/R43jlA=',
                         'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8vDwp4uBLgk5O59C2jhEX7TM7Ta72EN/FklXhwR/pQE09+hoP7d4H2BmLWeadYC3U6eF1byrRwZV27XfiKFvOA==',
                         'url': 'https://nessie2025.ct.digicert.com/log/',
@@ -511,28 +483,53 @@ class AcmeManager:
                         'end': '2026-01-01T00:00:00Z',
                     },
                 ],
+                'digicert_sphinx': [
+                    {
+                        'log_id': 'pELFBklgYVSPD9TqnPt6LSZFTYepfy/fRVn2J086hFQ=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQYxQE1SxGQW3f0ogbqN1Y8o09Mx06jI7tosDFKhSfzKHXlmeD6sYnilstXJ3GidUhV3BeySoNOPNiM7UUBu+aQ==',
+                        'url': 'https://sphinx.ct.digicert.com/2025h2/',
+                        'start': '2025-07-01T00:00:00Z',
+                        'end': '2026-01-07T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'SZybad4dfOz8Nt7Nh2SmuFuvCoeAGdFVUvvp6ynd+MM=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEq4S++DyHokIlmmacritS51r5IRsZA6UH4kYLH4pefGyu/xl3huh7/O5rNk/yvMOeBQKaCAG1SSM1xNNQK1Hp9A==',
+                        'url': 'https://sphinx.ct.digicert.com/2026h1/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2026-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'lE5Dh/rswe+B8xkkJqgYZQHH0184AgE/cmd9VTcuGdg=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEquD0JkRQT/2inuaA4HC1sc6UpfiXgURVQmQcInmnZFnTiZMhZvsJgWAfYlU0OIykOC6slQzr7U9kvEVC9wZ6zQ==',
+                        'url': 'https://sphinx.ct.digicert.com/2026h2/',
+                        'start': '2026-07-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
+                ],
+                'digicert_wyvern': [
+                    {
+                        'log_id': '7TxL1ugGwqSiAFfbyyTiOAHfUS/txIbFcA8g3bc+P+A=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4NtB7+QEvctrLkzM8WzeQVh//pT2evZg7Yt2cqOiHDETMjWh8gjSaMU0p1YIHGPeleKBaZeNHqi3ZlEldU14Lg==',
+                        'url': 'https://wyvern.ct.digicert.com/2025h2/',
+                        'start': '2025-07-01T00:00:00Z',
+                        'end': '2026-01-07T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'ZBHEbKQS7KeJHKICLgC8q08oB9QeNSer6v7VA8l9zfA=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7Lw0OeKajbeZepHxBXJS2pOJXToHi5ntgKUW2nMhIOuGlofFxtkXum65TBNY1dGD+HrfHge8Fc3ASs0qMXEHVQ==',
+                        'url': 'https://wyvern.ct.digicert.com/2026h1/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2026-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'wjF+V0UZo0XufzjespBB68fCIVoiv3/Vta12mtkOUs0=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEenPbSvLeT+zhFBu+pqk8IbhFEs16iCaRIFb1STLDdWzL6XwTdTWcbOzxMTzB3puME5K3rT0PoZyPSM50JxgjmQ==',
+                        'url': 'https://wyvern.ct.digicert.com/2026h2/',
+                        'start': '2026-07-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
+                ],
                 'sectigo_sabre': [
-                    {
-                        'log_id': 'VYHUwhaQNgFK6gubVzxT8MDkOHhwJQgXL6OqHQcT0ww=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8m/SiQ8/xfiHHqtls9m7FyOMBg4JVZY9CgiixXGz0akvKD6DEL8S0ERmFe9U4ZiA0M4kbT5nmuk3I85Sk4bagA==',
-                        'url': 'https://sabre.ct.comodo.com/',
-                        'start': '2023-01-01T00:00:00Z',
-                        'end': '2024-01-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': 'ouK/1h7eLy8HoNZObTen3GVDsMa1LqLat4r4mm31F9g=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELAH2zjG8qhRhUf5reoeuptObx4ctClrIT7VU3MmToADuyhy5p7Z7RzvlT6psFhxwLsjsU1pMIUx+JwsTFF78hQ==',
-                        'url': 'https://sabre2024h1.ct.sectigo.com/',
-                        'start': '2024-01-01T00:00:00Z',
-                        'end': '2024-07-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': 'GZgQcQnw1lIuMIDSnj9ku4NuKMz5D1KO7t/OSj8WtMo=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEehBMiucie20quo76a0qB1YWuA+//S/xNUz23jLt1CcnqFn7BdxbSwkV0bY3E4Yg339TzYGX8oHXwIGaOSswZ2g==',
-                        'url': 'https://sabre2024h2.ct.sectigo.com/',
-                        'start': '2024-07-01T00:00:00Z',
-                        'end': '2025-01-01T00:00:00Z',
-                    },
                     {
                         'log_id': '4JKz/AwdyOdoNh/eYbmWTQpSeBmKctZyxLBNpW1vVAQ=',
                         'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfi858egjjrMyBK9NV/bbxXSkem07B1EMWvuAMAXGWgzEdtYGqFdN+9/kgpDCQa5wszGi4/o9XyxdBM20nVWrQQ==',
@@ -547,29 +544,22 @@ class AcmeManager:
                         'start': '2025-07-01T00:00:00Z',
                         'end': '2026-01-01T00:00:00Z',
                     },
+                    {
+                        'log_id': 'VmzVo3a+g9/jQrZ1xJwjJJinabrDgsurSaOHfZqzLQE=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhCa8Nr3YjTyHnuAQr82U2de5UYA0fvdYXHPq6wmTuBB7kJx9x82WQ+1TbpUhRmdR8N62yZ6q4oBtziWBNNdqYA==',
+                        'url': 'https://sabre2026h1.ct.sectigo.com/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2026-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'H1bRq5RwSkHdP+r99GmTVTAsFDG/5hNGCJ//rnldzC8=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEzjXK7DkHgtp3J4bk8n7F3Djym6mrjKfA7YMePmobwPCVVroyM0x1fAkH6eE+ZTVj8Em+ctGqna99CMS0jVk9cw==',
+                        'url': 'https://sabre2026h2.ct.sectigo.com/',
+                        'start': '2026-07-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
                 ],
                 'sectigo_mammoth': [
-                    {
-                        'log_id': 'b1N2rDHwMRnYmQCkURX/dxUcEdkCwQApBo2yCJo32RM=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7+R9dC4VFbbpuyOL+yy14ceAmEf7QGlo/EmtYU6DRzwat43f/3swtLr/L8ugFOOt1YU/RFmMjGCL17ixv66MZw==',
-                        'url': 'https://mammoth.ct.comodo.com/',
-                        'start': '2023-01-01T00:00:00Z',
-                        'end': '2024-01-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': 'KdA6G7Z0qnEc0wNbZVfBT4qni0/oOJRJ7KRT+US9JGg=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpFmQ83EkJPfDVSdWnKNZHve3n86rThlmTdCK+p1ipCTwOyDkHRRnyPzkN/JLOFRaz59rB5DQDn49TIey6D8HzA==',
-                        'url': 'https://mammoth2024h1.ct.sectigo.com/',
-                        'start': '2024-01-01T00:00:00Z',
-                        'end': '2024-07-01T00:00:00Z',
-                    },
-                    {
-                        'log_id': '3+FW66oFr7WcD4ZxjajAMk6uVtlup/WlagHRwTu+Ulw=',
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhWYiJG6+UmIKoK/DJRo2LqdgiaJlv6RfvYVqlAWBNZBUMZXnEZ6jLg+F76eIV4tjGoHBQZ197AE627nBJ/RlHg==',
-                        'url': 'https://mammoth2024h2.ct.sectigo.com/',
-                        'start': '2024-07-01T00:00:00Z',
-                        'end': '2025-01-01T00:00:00Z',
-                    },
                     {
                         'log_id': 'E0rfGrWYQgl4DG/vTHqRpBa3I0nOWFdq367ap8Kr4CI=',
                         'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEzxBtTB9LkqhqGvSxVdrmP5+79Uh4rpdsLqFEW6U4D2ojm1WjUQCnrCDzFTfm05yYks8DDLdhvvrPmbNd1hb5Q==',
@@ -584,29 +574,96 @@ class AcmeManager:
                         'start': '2025-07-01T00:00:00Z',
                         'end': '2026-01-01T00:00:00Z',
                     },
+                    {
+                        'log_id': 'JS+Uwisp6W6fQRpyBytpXFtS/5epDSVAu/zcUexN7gs=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnssMilHMiuILzoXmr00x2xtqTP2weWuZl8Bd+25FUB1iqsafm2sFPaKrK12Im1Ao4p5YpaX6+eP6FSXjFBMyxA==',
+                        'url': 'https://mammoth2026h1.ct.sectigo.com/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2026-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'lLHBirDQV8R74KwEDh8svI3DdXJ7yVHyClJhJoY7pzw=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7INh8te0u+TkO+vIY3WYz2GQYxQ9XyLfdLpQp1ibaX3mY4lt2ddRhD/4AtjI/8KXceV+J/VysY8kJ1cKDXTAtg==',
+                        'url': 'https://mammoth2026h2.ct.sectigo.com/',
+                        'start': '2026-07-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
+                ],
+                'sectigo_elephant': [
+                    {
+                        'log_id': 'DR28iUTp9QBVQtctPhRMzEMIKrbqHpTf1wZlfS6G8wE=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0OlLeGW2qUZGUoQERydw3GlayEO3ZK3418zThY1tDYr85ASme6ZOL/2DXyOXw8RCwVsKhRbOqMEOxW4Q2p4KQg==',
+                        'url': 'https://elephant2025h2.ct.sectigo.com/',
+                        'start': '2025-07-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': '0W6ppWgHfmY1oD83pd28A6U8QRIU1IgY9ekxsyPLlQQ=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEU0lqnPHoXuU9Fc9dJv1HQZCvssJfvxLsirwVQ/fkFyUqeu4inwPKikeT4DGyyWWH4NR/DCJa2bAumHrXJdAcaQ==',
+                        'url': 'https://elephant2026h1.ct.sectigo.com/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2026-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'r2eIO1ewTt2Pptl+9i6o64EKx3Fg8CReVdYML+eFhzo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEO/t4Uwkoou78zkCchh9tfAKbIUJmbOoUAb8szD8StnnHFKAVY5kq1Ljs8YD7CfzdD7xcVjmQYpbtNUhxRMRtmA==',
+                        'url': 'https://elephant2026h2.ct.sectigo.com/',
+                        'start': '2026-07-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'YEyar3p/d18B1Ab8kg3ImesLHH34yVIb+voXdzuXi8k=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4fu36JygUwaaVO+ddWJ97FJZlA5SjPLmT+RHwg0pavkIrbT1b5LNQrsaEw0CoGraf7BkzKZf7PC8gYAScw2woA==',
+                        'url': 'https://elephant2027h1.ct.sectigo.com/',
+                        'start': '2027-01-01T00:00:00Z',
+                        'end': '2027-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'okkM3NuOM6QAMhdg1tTVGiA2GR6nfZaL4mqKAPb///c=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECTPhpJnRFroRRpP/1DdAns+PrnmUywtqIV+EeL4Jg8zKouoW7kuAkYo+kZeoHtyK7CBhflIlMk7T2Qrn4w/t8g==',
+                        'url': 'https://elephant2027h2.ct.sectigo.com/',
+                        'start': '2027-07-01T00:00:00Z',
+                        'end': '2028-01-01T00:00:00Z',
+                    },
+                ],
+                'sectigo_tiger': [
+                    {
+                        'log_id': 'XKV30pt/i69Bntjsq/tty67DhTcC1XRvF02tPJNKqWo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFUl5keBbWVckXMv6WSWToTeGwi9DSNCI2WZlIENBkA/zADmmS58w33/f0JhC2KEkWS+4T7/bYOXv4dDNzzrExg==',
+                        'url': 'https://tiger2025h2.ct.sectigo.com/',
+                        'start': '2025-07-01T00:00:00Z',
+                        'end': '2026-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'FoMtq/CpJQ8P8DqlRf/Iv8gj0IdL9gQpJ/jnHzMT9fo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE73eDJyszDbzsWcgI0nbtU0+y11gQWjNjS/RSO5P4hOSFE+pPrDCtfNPHe6dq7/XQYwOFt9Feb8TwQW+mqXN5xg==',
+                        'url': 'https://tiger2026h1.ct.sectigo.com/',
+                        'start': '2026-01-01T00:00:00Z',
+                        'end': '2026-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'yKPEf8ezrbk1awE/anoSbeM6TkOlxkb5l605dZkdz5o=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfJFUD/FRkonvZIA9ZT1J3yvA4EpSp3innbIVpMTDR1oCe5vguapheQ7wYiWaCES1EL1B+2BEC+P5bUfwF44lnA==',
+                        'url': 'https://tiger2026h2.ct.sectigo.com/',
+                        'start': '2026-07-01T00:00:00Z',
+                        'end': '2027-01-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'HJ9oLOn68EVpUPgbloqH3dsyENhM5siy44JSSsTPWZ8=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmMQofpsDjCVYzF4jXdFWM/ioYBJIPcsQQrNAHE6v4lOsADoI+/jN1lph8x4K3NgnXDXwmyJcFwRYgVOBMhaYhA==',
+                        'url': 'https://tiger2027h1.ct.sectigo.com/',
+                        'start': '2027-01-01T00:00:00Z',
+                        'end': '2027-07-01T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'A4AqwmL24F4D+Lxve5hRMk/Xaj31t1lRdeIi+46b1fY=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEb0AgkemhsPmYe1goCSy5ncf2lG9vtK6f+SzODKJMYEgPOT+z93cUEKM1EaTuo09rozfdqhjeihIl25y9A3JhyQ==',
+                        'url': 'https://tiger2027h2.ct.sectigo.com/',
+                        'start': '2027-07-01T00:00:00Z',
+                        'end': '2028-01-01T00:00:00Z',
+                    },
                 ],
                 'lets_encrypt_oak': [
-                    {
-                        'log_id': self._hex_to_base64('B7:3E:FB:24:DF:9C:4D:BA:75:F2:39:C5:BA:58:F4:6C:5D:FC:42:CF:7A:9F:35:C4:9E:1D:09:81:25:ED:B4:99'),
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsz0OeL7jrVxEXJu+o4QWQYLKyokXHiPOOKVUL3/TNFFquVzDSer7kZ3gijxzBp98ZTgRgMSaWgCmZ8OD74mFUQ==',
-                        'url': 'https://oak.ct.letsencrypt.org/2023/',
-                        'start': '2023-01-01T00:00:00Z',
-                        'end': '2024-01-07T00:00:00Z',
-                    },
-                    {
-                        'log_id': self._hex_to_base64('3B:53:77:75:3E:2D:B9:80:4E:8B:30:5B:06:FE:40:3B:67:D8:4F:C3:F4:C7:BD:00:0D:2D:72:6F:E1:FA:D4:17'),
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVkPXfnvUcre6qVG9NpO36bWSD+pet0Wjkv3JpTyArBog7yUvuOEg96g6LgeN5uuk4n0kY59Gv5RzUo2Wrqkm/Q==',
-                        'url': 'https://oak.ct.letsencrypt.org/2024h1/',
-                        'start': '2023-12-20T00:00:00Z',
-                        'end': '2024-07-20T00:00:00Z',
-                    },
-                    {
-                        'log_id': self._hex_to_base64('3F:17:4B:4F:D7:22:47:58:94:1D:65:1C:84:BE:0D:12:ED:90:37:7F:1F:85:6A:EB:C1:BF:28:85:EC:F8:64:6E'),
-                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE13PWU0fp88nVfBbC1o9wZfryUTapE4Av7fmU01qL6E8zz8PTidRfWmaJuiAfccvKu5+f81wtHqOBWa+Ss20waA==',
-                        'url': 'https://oak.ct.letsencrypt.org/2024h2/',
-                        'start': '2024-06-20T00:00:00Z',
-                        'end': '2025-01-20T00:00:00Z',
-                    },
                     {
                         'log_id': 'ouMK5EXvva2bfjjtR2d3U9eCW4SU1yteGyzEuVCkR+c=',
                         'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKeBpU9ejnCaIZeX39EsdF5vDvf8ELTHdLPxikl4y4EiROIQfS4ercpnMHfh8+TxYVFs3ELGr2IP7hPGVPy4vHA==',
@@ -620,6 +677,94 @@ class AcmeManager:
                         'url': 'https://oak.ct.letsencrypt.org/2025h2/',
                         'start': '2025-06-20T00:00:00Z',
                         'end': '2026-01-20T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'GYbUxyiqb/66A294Kk0BkarOLXIxD67OXXBBLSVMx9Q=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmdRhcCL6d5MNs8eAliJRvyV5sQFC6UF7iwzHsmVaifT64gJG1IrHzBAHESdFSJAjQN56TYky+9cK616MovH2SQ==',
+                        'url': 'https://oak.ct.letsencrypt.org/2026h1/',
+                        'start': '2025-12-20T00:00:00Z',
+                        'end': '2026-07-20T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'rKswcGzr7IQx9BPS9JFfER5CJEOx8qaMTzwrO6ceAsM=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEanCds5bj7IU2lcNPnIvZfMnVkSmu69aH3AS8O/Y0D/bbCPdSqYjvuz9Z1tT29PxcqYxf+w1g5CwPFuwqsm3rFQ==',
+                        'url': 'https://oak.ct.letsencrypt.org/2026h2/',
+                        'start': '2026-06-20T00:00:00Z',
+                        'end': '2027-01-20T00:00:00Z',
+                    },
+                ],
+                'lets_encrypt_sycamore': [
+                    {
+                        'log_id': 'W/beU/H7+sSaGFl0aUWhpqconV5wpg9IRQ5Ya7mucrg=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERI8grd3rsuE95/3Rk/Jn9rGBrpcvDqD6Y5Ooz1E+xABGl3w6JLdFHfzSFZvEFX/Goar6nbzQHtV75ud4R0Iafg==',
+                        'url': 'https://log.sycamore.ct.letsencrypt.org/2025h2d/',
+                        'start': '2025-06-19T00:00:00Z',
+                        'end': '2025-12-18T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'pcl4kl1XRheChw3YiWYLXFVki30AQPLsB2hR0YhpGfc=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfEEe0JZknA91/c6eNl1aexgeKzuGQUMvRCXPXg9L227O5I4Pi++Abcpq6qxlVUKPYafAJelAnMfGzv3lHCc8gA==',
+                        'url': 'https://log.sycamore.ct.letsencrypt.org/2026h1/',
+                        'start': '2025-12-18T00:00:00Z',
+                        'end': '2026-06-18T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'bP5QGUOoXqkWvFLRM+TcyR7xQRx9JYQg0XOAnhgY6zo=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEwR1FtiiMbpvxR+sIeiZ5JSCIDIdTAPh7OrpdchcrCcyNVDvNUq358pqJx2qdyrOI+EjGxZ7UiPcN3bL3Q99FqA==',
+                        'url': 'https://log.sycamore.ct.letsencrypt.org/2026h2/',
+                        'start': '2026-06-18T00:00:00Z',
+                        'end': '2026-12-17T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'jspHC6zeavOiBrCkeoS3Rv4fxr+VPiXmm07kAkjzxug=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEWrGdYyZYB7teCS4K/oKIsbV0yVBSgjlOwO22OOCoA6Y252QhFzC8Wg7oVXVKqfkWaSaM/n+3pfCBf4BAkpdx8g==',
+                        'url': 'https://log.sycamore.ct.letsencrypt.org/2027h1/',
+                        'start': '2026-12-17T00:00:00Z',
+                        'end': '2027-06-18T00:00:00Z',
+                    },
+                    {
+                        'log_id': '5eNiR9ku9K2jhYO1NZHbcp/C8ArktnRRdNPd/GqiU4g=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEK+2zy2UWRMIyC2jU46+rj8UsyMjLsQIr1Y/6ClbdpWGthUb8y3Maf4zfAZTWW+AH9wAWPLRL5vmtz7Zkh2f2nA==',
+                        'url': 'https://log.sycamore.ct.letsencrypt.org/2027h2/',
+                        'start': '2027-06-18T00:00:00Z',
+                        'end': '2027-12-16T00:00:00Z',
+                    },
+                ],
+                'lets_encrypt_willow': [
+                    {
+                        'log_id': '5NAXdhyRORG+9HOWrNjSRljCT7WTtRvqxVknYuiFPBU=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElX78WOZsrDp7/LDFvsGytclanWhJ2oEwdgytKo21ZrCzbJ6raFAmZ1bMFh4B/0+e1aWtfhG2wgCM2ex/aDgZuA==',
+                        'url': 'https://log.willow.ct.letsencrypt.org/2025h2d/',
+                        'start': '2025-06-18T00:00:00Z',
+                        'end': '2025-12-17T00:00:00Z',
+                    },
+                    {
+                        'log_id': '4yON8o2iiOCq4Kzw+pDJhfC2v/XSpSewAfwcRFjEtug=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtpFyulwgy1+u+wYQ37lbV+HsPFNYoi4sy6dZP662N/Z/usdNi4+Q3RLES1RY2PNk7zL/7VPSn3JERMPu/s4e4A==',
+                        'url': 'https://log.willow.ct.letsencrypt.org/2026h1/',
+                        'start': '2025-12-17T00:00:00Z',
+                        'end': '2026-06-17T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'qCbL4wrGNRJGUz/gZfFPGdluGQgTxB3ZbXkAsxI8VSc=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEp8wH8R6zfM+UhsQq5un+lPdNTDkzcgkWLi1DwyqU6T00mtP5/CuGjvpw4mIz89I6KV5ZvhRHt5ZTF6qe24pqiA==',
+                        'url': 'https://log.willow.ct.letsencrypt.org/2026h2/',
+                        'start': '2026-06-17T00:00:00Z',
+                        'end': '2026-12-16T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'ooEAGHNOF24dR+CVQPOBulRml81jqENQcW64CU7a8Q0=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEzsMKtojO0BVB4t59lVyAhxtqObVA+wId5BpJGA8pZrw5GTjzuhpvLu/heQGi0hHCeislkDe34N/2D0SwEUBE0w==',
+                        'url': 'https://log.willow.ct.letsencrypt.org/2027h1/',
+                        'start': '2026-12-16T00:00:00Z',
+                        'end': '2027-06-17T00:00:00Z',
+                    },
+                    {
+                        'log_id': 'ppWirZJtb5lujvxJAUJX2LvwRqfWJYm4jcLXh2x45S8=',
+                        'key': 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYbMDg0qQEEYjsTttdDlouTKhg3fRiMJYNE+Epr/2bXyeQdQOHKQNKv5sbIKxjtE/5Vqo9YjQbnaOeH4Wm4PhdQ==',
+                        'url': 'https://log.willow.ct.letsencrypt.org/2027h2/',
+                        'start': '2027-06-17T00:00:00Z',
+                        'end': '2027-12-15T00:00:00Z',
                     },
                 ],
             },
@@ -1561,8 +1706,12 @@ class AcmeManager:
     def _sct_datetime(self, sct_timestamp):
         return datetime.datetime.utcfromtimestamp(sct_timestamp / 1000)
 
-    def _get_ct_log(self, ct_log_name, certificate):
+    def _get_ct_log(self, ct_log_name, certificate, report_error: bool = False):
         ct_log = self._config('ct_logs', ct_log_name)
+        if (ct_log is None):
+            if (report_error):
+                self._error('Unknown CT log: ', ct_log_name, '\n', code=ErrorCode.CONFIG)
+            return None
         if (isinstance(ct_log, list)):
             not_after = self._datetime_from_asn1_generaltime(certificate.get_notAfter())
             for log in ct_log:
@@ -1570,11 +1719,14 @@ class AcmeManager:
                 end = datetime.datetime.strptime(log.get('end', '2999-01-01T00:00:00Z'), '%Y-%m-%dT%H:%M:%SZ')
                 if ((start <= not_after) and (not_after < end)):
                     return log
+            if (report_error):
+                self._error('CT log: ', ct_log_name, ' has no valid entry for current date, check for updates or configure a new CT log entry\n',
+                            code=ErrorCode.CONFIG)
             return None
         return ct_log
 
     def fetch_sct(self, ct_log_name, certificate, chain):
-        ct_log = self._get_ct_log(ct_log_name, certificate)
+        ct_log = self._get_ct_log(ct_log_name, certificate, report_error=True)
         if (ct_log and ('url' in ct_log)):
             certificates = ([base64.b64encode(self._certificate_bytes(certificate)).decode('ascii')]
                             + [base64.b64encode(self._certificate_bytes(chain_certificate)).decode('ascii') for chain_certificate in chain])
@@ -1596,8 +1748,6 @@ class AcmeManager:
                 self._warn('Unable to retrieve SCT from log ', ct_log_name, ' ', error.reason, '\n', code=WarningCode.SCT)
             except Exception as error:
                 self._warn('Unable to retrieve SCT from log ', ct_log_name, ' ', error, '\n', code=WarningCode.SCT)
-        else:
-            self._error('Unknown CT log: ', ct_log_name, '\n', code=ErrorCode.CONFIG)
         return None
 
     def load_sct(self, file_name, key_type, ct_log_name, certificate):
@@ -1705,7 +1855,7 @@ class AcmeManager:
         if (must_staple):
             extensions.append(self._ocsp_must_staple_extension())
         req.add_extensions(extensions)
-        req.set_version(2)
+        req.set_version(0)
         req.set_pubkey(private_key)
         req.sign(private_key, 'sha256')
         return OpenSSL.crypto.dump_certificate_request(OpenSSL.crypto.FILETYPE_PEM, req)
@@ -1850,10 +2000,6 @@ class AcmeManager:
                                     code=ErrorCode.CONFIG)
 
                 certificate_key_types = self._get_list(key_certificates[certificate_name], 'key_types', private_key_types)
-                for key_type in certificate_key_types:
-                    if (key_type not in private_key_types):
-                        self._fatal('Certificate ', certificate_name, ' defines key type ', key_type, ' that is not present in private key\n',
-                                    code=ErrorCode.CONFIG)
                 key_certificates[certificate_name]['key_types'] = certificate_key_types
                 all_certificate_key_types |= set(certificate_key_types)
 
@@ -1892,12 +2038,12 @@ class AcmeManager:
                 else:
                     key_certificates[certificate_name]['verify'] = self.config['settings']['verify']
             private_keys[private_key_name]['certificates'] = key_certificates
-            private_keys[private_key_name]['key_types'] = [key_type for key_type in private_key_types if (key_type in all_certificate_key_types)]
+            private_keys[private_key_name]['key_types'] = list(all_certificate_key_types)
         self.config['private_keys'] = private_keys
 
     def _user_agent(self):
         return '{script}/{version} acme-python/{acme_version}'.format(script=self.script_name, version=self.script_version,
-                                                                      acme_version=pkg_resources.get_distribution('acme').version)
+                                                                      acme_version=pkg_version('acme'))
 
     def _generate_client_key(self, client_key_path):
         self.client_key = josepy.JWKRSA(key=rsa.generate_private_key(public_exponent=65537, key_size=4096, backend=default_backend()))
@@ -1945,14 +2091,16 @@ class AcmeManager:
             try:
                 network = client.ClientNetwork(self.client_key, account=registration, user_agent=self._user_agent(),
                                                verify_ssl=self._setting('acme_directory_verify_ssl'))
-                self.acme_client = client.BackwardsCompatibleClientV2(network, self.client_key, self._setting('acme_directory_url'))
+                directory = messages.Directory.from_json(network.get(self._setting('acme_directory_url')).json())
+                self.acme_client = client.ClientV2(directory, net=network)
             except Exception as error:
                 self._fatal("Can't connect to ACME service.\n", error, '\n', code=ErrorCode.ACME)
         else:
             self._detail('Registering client\n')
             try:
                 network = client.ClientNetwork(self.client_key, user_agent=self._user_agent(), verify_ssl=self._setting('acme_directory_verify_ssl'))
-                self.acme_client = client.BackwardsCompatibleClientV2(network, self.client_key, self._setting('acme_directory_url'))
+                directory = messages.Directory.from_json(network.get(self._setting('acme_directory_url')).json())
+                self.acme_client = client.ClientV2(directory, net=network)
             except Exception as error:
                 self._fatal("Can't connect to ACME service.\n", error, '\n', code=ErrorCode.ACME)
 
@@ -1965,10 +2113,12 @@ class AcmeManager:
                     self._detail('Terms of service accepted.\n')
                 else:
                     self._status('Auto-accepting TOS: ', tos, '\n')
+                return True
 
             try:
-                reg = messages.NewRegistration.from_data(email=self._account('email'))
-                registration = self.acme_client.new_account_and_tos(reg, _accept_tos)
+                reg = messages.NewRegistration.from_data(email=self._account('email'),
+                                                         terms_of_service_agreed=_accept_tos(self.acme_client.directory.meta.terms_of_service))
+                registration = self.acme_client.new_account(reg)
             except Exception as error:
                 self._fatal("Can't register with ACME service.\n", error, '\n', code=ErrorCode.ACME)
 
@@ -2278,39 +2428,28 @@ class AcmeManager:
         order.update(authorizations=[authorization_resource for authorization_resource in authorization_resources.values()])
 
     def _create_auth_order(self, domain_names):
-        if (1 == self.acme_client.acme_version):
+        identifiers = []
+
+        for domain_name in domain_names:
+            identifiers.append(messages.Identifier(typ=messages.IDENTIFIER_FQDN, value=domain_name))
+
+        if (identifiers):
+            order = messages.NewOrder(identifiers=identifiers)
+            try:
+                response = self.acme_client._post(self.acme_client.directory['newOrder'], order)
+            except Exception as error:
+                self._error('Unable to create authorization order\n', self._indent(error), '\n', code=ErrorCode.ACME)
+                return None
+            body = messages.Order.from_json(response.json())
             authorizations = []
-            for domain_name in domain_names:
+            for url in body.authorizations:
                 try:
-                    authorizations.append(self.acme_client.client.request_domain_challenges(domain_name))
+                    authorizations.append(self.acme_client._authzr_from_response(self.acme_client._post_as_get(url), uri=url))
                 except Exception as error:
                     self._error('Unable to request authorization for ', domain_name, '\n', self._indent(error), '\n', code=ErrorCode.ACME)
                     continue
             if (authorizations):
-                return messages.OrderResource(authorizations=authorizations)
-        else:
-            identifiers = []
-
-            for domain_name in domain_names:
-                identifiers.append(messages.Identifier(typ=messages.IDENTIFIER_FQDN, value=domain_name))
-
-            if (identifiers):
-                order = messages.NewOrder(identifiers=identifiers)
-                try:
-                    response = self.acme_client.client._post(self.acme_client.client.directory['newOrder'], order)
-                except Exception as error:
-                    self._error('Unable to create authorization order\n', self._indent(error), '\n', code=ErrorCode.ACME)
-                    return None
-                body = messages.Order.from_json(response.json())
-                authorizations = []
-                for url in body.authorizations:
-                    try:
-                        authorizations.append(self.acme_client.client._authzr_from_response(self.acme_client.client._post_as_get(url), uri=url))
-                    except Exception as error:
-                        self._error('Unable to request authorization for ', domain_name, '\n', self._indent(error), '\n', code=ErrorCode.ACME)
-                        continue
-                if (authorizations):
-                    return messages.OrderResource(body=body, uri=response.headers.get('Location'), authorizations=authorizations)
+                return messages.OrderResource(body=body, uri=response.headers.get('Location'), authorizations=authorizations)
         return None
 
     def process_authorizations(self, private_key_names=[]):
@@ -2719,12 +2858,13 @@ class AcmeManager:
                         dhparam_pem = hold_dhparam_pem
 
                 ecparam_curves = self._option_list(key_certificates[certificate_name], 'ecparam_curve')
-                if (ecparam_pem and ecparam_curves and (ecparam_curves != self.ecparam_curves(ecparam_pem))):
+                specified_ecparam_pem = self.generate_ecparam(ecparam_curves) if (ecparam_curves) else None
+                if (ecparam_pem and ecparam_curves and (ecparam_pem != specified_ecparam_pem)):
                     self._info('Elliptical curve parameters for ', certificate_name, ' are not curve ', ':'.join(ecparam_curves), '\n')
                     ecparam_pem = None
-                if ((not ecparam_pem) and (ecparam_curves)):
+                if ((not ecparam_pem) and ecparam_curves):
                     self._status('Generating ', ':'.join(ecparam_curves), ' elliptical curve parameters for ', certificate_name, '\n')
-                    ecparam_pem = self.generate_ecparam(ecparam_curves)
+                    ecparam_pem = specified_ecparam_pem
                     if (ecparam_pem):
                         generated_params = True
                     else:
